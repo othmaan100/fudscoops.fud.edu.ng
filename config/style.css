@@ -1,0 +1,76 @@
+@font-face {
+    font-family: 'Carlito Regular';
+    font-style: normal;
+    font-weight: normal;
+    src: local('Carlito Regular'), url('Carlito-Regular.woff') format('woff');
+}
+
+body {
+    background-image:    url(bg.png) !important;
+    background-repeat:   no-repeat;
+    background-position: center center;              /* optional, center the image */
+    background-size: 300px 100px;
+    /* font-size: 16px; */
+    font-family:'Carlito Regular',Calibri;
+
+    /* font-family:  Calibri; */
+    /* background-color: burlywood; */
+}
+.header{
+    text-align: center;
+    font-family:'Carlito Regular';
+    font-weight:normal;
+    /* margin-top: -2000px; */
+}
+
+tr td{
+    page-break-inside: avoid;
+    white-space: nowrap;
+}
+#img{
+    height: 60px;
+    width: 60px;
+}
+.header .p{
+    font-size: x-large;
+}
+.p2{
+    font-size: x-large;
+    margin-bottom: -10px;
+    /* background-color: green; */
+    margin-top: 10px;
+}
+.p1{
+    margin-bottom: -500px;
+    /* background-color: green; */
+
+}
+table {
+    width: 100%;
+    /* font-size: 18px; */
+    font-family:'Carlito Regular';
+
+    /* font-family: 'Bahnschrift Light'; */
+}
+.hr{
+    border-bottom: black 1px solid !important;
+}
+table td{
+    /* font-size: 50px !important; */
+}
+.gr{
+    padding-left: 15px;
+}
+#container{
+   
+    min-height: 100%;
+    display: table-cell;
+    /* background-color: chocolate; */
+}
+#bottom {
+        font-style: italic;
+        font-size: 10px !important;
+        margin-top: 70px;
+        
+
+}

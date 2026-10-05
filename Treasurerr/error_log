@@ -1,0 +1,32 @@
+[18-Oct-2024 14:53:25 UTC] PHP Parse error:  syntax error, unexpected '<', expecting end of file in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/Secretary/withdrawal_endorsement.php on line 158
+[18-Oct-2024 14:57:56 UTC] PHP Fatal error:  Uncaught Error: Call to undefined method View::ICTSideNav() in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/Secretary/upload.php:22
+Stack trace:
+#0 {main}
+  thrown in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/Secretary/upload.php on line 22
+[18-Oct-2024 15:13:32 UTC] PHP Fatal error:  Uncaught Error: Call to undefined method View::ICTSideNav() in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/Secretary/report.php:21
+Stack trace:
+#0 {main}
+  thrown in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/Secretary/report.php on line 21
+[18-Oct-2024 15:14:57 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[18-Oct-2024 15:20:31 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[18-Oct-2024 15:20:41 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[18-Oct-2024 15:21:09 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[18-Oct-2024 15:21:16 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[18-Oct-2024 15:21:22 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[18-Oct-2024 15:21:27 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[18-Oct-2024 15:23:33 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[18-Oct-2024 15:51:52 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[18-Oct-2024 15:52:43 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[18-Oct-2024 15:52:50 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[18-Oct-2024 15:54:20 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[18-Oct-2024 15:54:25 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[18-Oct-2024 16:05:30 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[18-Oct-2024 16:31:14 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[18-Oct-2024 16:31:14 UTC] PHP Fatal error:  Uncaught Error: Call to undefined method View::ICTSideNav() in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/Secretary/upload.php:22
+Stack trace:
+#0 {main}
+  thrown in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/Secretary/upload.php on line 22
+[18-Oct-2024 16:31:16 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[19-Oct-2024 13:48:20 UTC] PHP Notice:  Undefined index: username in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/config/classes/View.php on line 94
+[27-Oct-2024 11:52:11 UTC] PHP Warning:  require_once(../../classes/Generic.php): failed to open stream: No such file or directory in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/Secretary/uploadCourse.php on line 3
+[27-Oct-2024 11:52:11 UTC] PHP Fatal error:  require_once(): Failed opening required '../../classes/Generic.php' (include_path='.:/opt/alt/php73/usr/share/pear') in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/Secretary/uploadCourse.php on line 3

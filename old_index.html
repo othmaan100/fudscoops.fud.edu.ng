@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <!-- Required meta tags -->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>FUD STAFF</title>
+  <!-- plugins:css -->
+  <link rel="stylesheet" href="vendors/mdi/css/materialdesignicons.min.css">
+  <link rel="stylesheet" href="vendors/base/vendor.bundle.base.css">
+  <!-- endinject -->
+  <!-- plugin css for this page -->
+  <!-- End plugin css for this page -->
+  <!-- inject:css -->
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/login.css">
+  <!-- endinject -->
+  <link rel="shortcut icon" href="images/favicon.png" />
+  <style>
+      
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.4);
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 300px;
+        }
+
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+    </style>
+  
+</head>
+
+<body>
+  <div class="container-scroller">
+    <div class="container-fluid page-body-wrapper full-page-wrapper">
+      <div class="content-wrapper d-flex align-items-stretch auth auth-img-bg">
+        <div class="row flex-grow">          
+          <div class="col-lg-12 login-half-bg row">
+            
+            <div class="col-lg-4"></div>
+            <div class="col-lg-4 notice ">
+                <img src="images/logo.png" width="40%" style="display:block;margin-left:auto;margin-right:auto;max-width:30%;" class="col-" alt="logo">
+
+                <div class="auth-form-transparent2 text-left p-">
+                        <h2 class="text-center p-header text-center"><b>FUD STAFF COOPERATIVE PORTAL</b></h2>
+                    <form class="pt-3" id="frm-login">
+                    <div class="msg"></div>
+                    <div class="form-group">
+                        <label for="exampleInputEmail">STAFF NUMBER (SP/JP NO.)</label>
+                        <div class="input-group">
+                        <div class="input-group-prepend bg-transparent">
+                            <span class="input-group-text bg-transparent border-right-0">
+                            <i class="mdi mdi-account-outline text-primary"></i>
+                            </span>
+                        </div>
+                        <input type="text" class="form-control form-control-lg border-left-0" name="username" id="username" placeholder="SP/R/0000">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="exampleInputPassword">PASSWORD</label>
+                        <div class="input-group">
+                        <div class="input-group-prepend bg-transparent">
+                            <span class="input-group-text bg-transparent border-right-0">
+                            <i class="mdi mdi-lock-outline text-primary"></i>
+                            </span>
+                        </div>
+                        <input type="password" class="form-control form-control-lg border-left-0" name="password" id="password" placeholder="SP NUMBER AS DEFAULT PASSWORD">                        
+                        </div>
+                    </div>
+                    
+                    <div class="my-3">
+                        <button type="submit" class="btn btn-block btn-primary btn-lg font-weight-medium auth-form-btn" id="login" href="#">
+                            LOGIN
+                        </button>
+                    </div>
+                   <button type="button" class="btn btn-danger btn-sm font-weight-medium auth-form-btn" id="forgotPasswordBtn">
+        Forgot Password
+    </button>
+                    
+                    </form>
+                </div>
+            </div>  
+            
+            <div id="resetPasswordModal" class="modal">
+        <!-- Modal content -->
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Reset Password</h2>
+            <form id="resetPasswordForm">
+                <label for="username">Username:</label>
+                <input type="text" id="username" name="username" required><br><br>
+                <input type="submit" value="Reset Password">
+            </form>
+        </div>
+    </div>
+
+   
+
+            
+            
+          </div>
+          
+        </div>
+      </div></div>
+      <!-- content-wrapper ends -->
+    </div>
+    <!-- page-body-wrapper ends -->
+  <!-- container-scroller -->
+  <!-- plugins:js -->
+   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            // Open the modal when the button is clicked
+            $("#forgotPasswordBtn").click(function() {
+                $("#resetPasswordModal").css("display", "block");
+            });
+
+            // Close the modal when the close button is clicked
+            $(".close").click(function() {
+                $("#resetPasswordModal").css("display", "none");
+            });
+
+            // Handle form submission
+            $("#resetPasswordForm").submit(function(event) {
+                event.preventDefault(); // Prevent form from submitting normally
+
+                // Retrieve form data
+                var username = $("#username").val();
+                var password = md5("123456"); // Generate MD5 hash of the password "123456"
+
+                // Send the data to the server-side script for processing (you need to implement this part)
+
+                // Reset the form
+                $("#resetPasswordForm")[0].reset();
+
+                // Close the modal
+                $("#resetPasswordModal").css("display", "none");
+            });
+        });
+    </script>
+  <script src="vendors/base/vendor.bundle.base.js"></script>
+  <!-- endinject -->
+  <!-- inject:js -->
+  <script src="js/off-canvas.js"></script>
+  <script src="js/hoverable-collapse.js"></script>
+  <script src="js/custom.js"></script>
+  <!-- endinject -->
+</body>
+
+</html>

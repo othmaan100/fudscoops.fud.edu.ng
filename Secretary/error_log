@@ -1,0 +1,4 @@
+[07-Mar-2026 14:23:29 UTC] PHP Fatal error:  Uncaught Error: Class 'MemberG1' not found in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/Secretary/savings_view.php:7
+Stack trace:
+#0 {main}
+  thrown in /home/t416hpbnrjg8/public_html/fudscoops.fud.edu.ng/Secretary/savings_view.php on line 7

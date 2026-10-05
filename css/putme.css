@@ -1,0 +1,64 @@
+/* +++++++++++++++++++  PUTME ++++++++++++++++++++++++++++++++++++++ */
+.p-header{
+    color: rgba(88, 35, 15, 0.767);
+  }
+  
+.notice{
+    background-color: rgba(17, 12, 10, 0.808);
+    margin: 50px;
+    /* margin-left: 20px; */
+    max-height: 430px;
+    padding: 35px;
+    color: #fff;
+    margin-bottom: 50px;
+    
+}
+.notice p {
+    margin-right: 30px;
+}
+.foot {
+    margin-top: 5px;
+    position: relative;
+}
+/* .flex-wrap{
+    margin-left: 5px !important;
+} */
+.login-half-bg {
+    background: url("../images/auth/login-bg.jpg") !important;
+    background-size: cover;
+}
+
+
+.table th, td {
+    margin: 0px !important;
+    /* border: rgb(170, 161, 161) !important; */
+    padding: 10px !important;
+}
+form .form-control {
+    border: 1px rgb(198, 198, 206) solid !important;
+}
+form .form-control:focus {
+    border: 1px rgb(32, 105, 134) solid !important;
+}
+select.form-control{
+    border: 1px rgb(198, 198, 206) solid !important;
+}
+#img-pass{
+    height: 280px !important;
+    width: 250px !important;
+    margin: 5px !important;
+}
+#uploadPic{
+    margin-top: 10px !important;
+}
+@media only screen and (max-width: 768px){
+    .notice{
+        margin-right: 40px;
+        display: block;
+    overflow: auto;
+    max-height: 700px;
+    }
+    .t-text{
+        display: none;
+    }
+}

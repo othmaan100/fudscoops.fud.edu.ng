@@ -1,0 +1,30 @@
+/* +++++++++++++++++++  PUTME ++++++++++++++++++++++++++++++++++++++ */
+.p-header{
+    color: #FFF;
+  }
+  
+.notice{
+    background-color: rgba(17, 12, 10, 0.808);
+    margin-top: 20px;
+    /* margin-left: 50px; */
+    max-height: 600px;
+    padding: 20px;
+    color: #fff;
+    /* margin-bottom: 50px; */
+    
+}
+.notice .form-control-lg{
+    color: #FFF;
+}
+.notice p {
+    margin-right: 30px;
+}
+.foot {
+    margin-top: 5px;
+    position: relative;
+}
+
+.login-half-bg {
+    background: url("../images/auth/login-bg.jpg") !important;
+    background-size: cover;
+}

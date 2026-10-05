@@ -1,0 +1,5 @@
+
+RewriteEngine on
+RewriteCond %{HTTP_HOST} ^fudscoops\.fud\.edu\.ng$ [OR]
+RewriteCond %{HTTP_HOST} ^www\.fudscoops\.fud\.edu\.ng$
+
