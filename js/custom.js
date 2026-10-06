@@ -209,27 +209,23 @@ $(document).ready(function () {
             type: "POST",
             // cache:false,
             success: function(msg){
-                
-                 let result = JSON.parse(msg);
-                  let status = result[0];
-                  let spNo = result[1];
-                let monthly_savings = result[2];
+                // Response is [1, spNo, monthly_savings] on success or [-1, message] on failure
+                let result;
+                try {
+                    result = JSON.parse(msg);
+                } catch (err) {
+                    result = [-1, 'Error! Cannot Register a Member. Contact system admin'];
+                }
+                let status = result[0];
 
-                // Optionally, use the values (e.g., printing them)
-                console.log("status: " + status);
-                console.log("SP No: " + spNo);
-                console.log("Monthly Savings: " + monthly_savings);
-
-                // Call the printReg function if needed
-                //printReg(result);
-                
                 if(status ==1){
                     $('.msg').html('<div class="alert offset-md-2 col-6 msg alert-success text-primary"> Member Registeration successfuly.</div>');
-                     setTimeout((function(){ window.location = '../auth/logout.php'  }), 100);   
+                     setTimeout((function(){ window.location = '../auth/logout.php'  }), 100);
                     //printReg(msg);
 
                 }else{
-                    $('.msg').html('<div class="alert msg offset-md-2 col-6  alert-danger text-primary"> Error! Cannot Register a Member. Contact system admin</div>');
+                    $('.msg').html('<div class="alert msg offset-md-2 col-6  alert-danger text-primary"></div>');
+                    $('.msg .alert').text(result[1] || 'Error! Cannot Register a Member. Contact system admin');
                 }
 
             }
@@ -701,36 +697,23 @@ $(document).on('submit', '.undertaking-form', function(e){
 });
 
 // ====================== Membership decision ====================================
+// Remember which decision button was clicked: some browsers (e.g. Safari) do not focus a clicked button
+$(document).on('click', '.membership-decision-form button[type=submit]', function(){
+    var actions = {proceed: 'Proceed', Decline: 'Decline', approve: 'Approve', deapprove: 'Disapprove'};
+    $(this).closest('form').data('action', actions[this.id] || '');
+});
+
 $(document).on('submit', '.membership-decision-form', function(e){
    e.preventDefault(); // Prevent the form from submitting normally
 
-    
-        // Determine which button was clicked (either Approved or Deapproved)
-        var action = '';
-        var type = $('#type').val();
-        
-        if (type == 'decision') {
-            if ($('#proceed').is(':focus')) {
-                action = 'Proceed';
-            } else if ($('#Decline').is(':focus')) {
-                action = 'Decline';
-            }
-        } else {
-            if ($('#approve').is(':focus')) {
-                action = 'Approve';
-            } else if ($('#deapprove').is(':focus')) {
-                action = 'Disapprove';
-            }
+        var action = $(this).data('action') || '';
+        if (!action) {
+            alert('Please click Approve or Reject.');
+            return false;
         }
-        
-        // Use action for further processing
-        //console.log(action);
-        
-      
-
 
     // Confirm the action with the user
-    if (!confirm('Are you sure you want to ' + action + ' the Membership Application?')) {
+    if (!confirm('Are you sure you want to ' + (action == 'Proceed' ? 'Approve' : action) + ' the Membership Application?')) {
         return false; // Exit if not confirmed
     }
 
@@ -754,7 +737,11 @@ $(document).on('submit', '.membership-decision-form', function(e){
                 // Success message
                 $('.msg').html('<div class="alert offset-md-2 col-6 msg alert-success text-primary">Membership Registeration Decision successfully Saved.</div>');
                 // Redirect after a short delay
-                setTimeout(function(){ window.location = '/Chairman/member_list.php'; }, 2000);
+                setTimeout(function(){ window.location = 'member_list.php'; }, 2000);
+            } else if (msg == -2) {
+                $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary">The Treasurer has not yet fixed the monthly savings for this applicant.</div>');
+            } else if (msg == -3) {
+                $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary">Only the Chairman can authorize membership. Please log in again.</div>');
             } else {
                 // Error message
                 $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary">Error! Cannot save Membership Registeration Decision. Contact system admin.</div>');
@@ -1322,6 +1309,8 @@ $(document).on('submit', '#commodity_request', function(e) {
                     $('.msg').html('<div class="alert offset-md-2 col-6 msg alert-success text-primary"> Withdrawal request submitted successfully.</div>');
                      setTimeout((function(){ window.location = '../index.php'  }), 100);              
 
+                }else if(msg == -2){
+                    $('.msg').html('<div class="alert msg offset-md-2 col-6  alert-danger text-primary"> The amount is below the minimum monthly savings. Please enter a higher amount.</div>');
                 }else{
                     $('.msg').html('<div class="alert msg offset-md-2 col-6  alert-danger text-primary"> Error! Contact system admin</div>');
                 }
@@ -1394,6 +1383,8 @@ $(document).on('submit', '#commodity_request', function(e) {
                     $('.msg').html('<div class="alert offset-md-2 col-6 msg alert-success text-primary"> Withdrawal request submitted successfully.</div>');
                      setTimeout((function(){ window.location = '/UR/index.php'  }), 100);              
 
+                }else if(msg == -2){
+                    $('.msg').html('<div class="alert msg offset-md-2 col-6  alert-danger text-primary"> The amount is below the minimum monthly savings. Please enter a higher amount.</div>');
                 }else{
                     $('.msg').html('<div class="alert msg offset-md-2 col-6  alert-danger text-primary"> Error! Contact system admin</div>');
                 }

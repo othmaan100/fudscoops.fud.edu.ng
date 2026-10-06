@@ -2,7 +2,9 @@
         require_once('../config/classes/View.php');
         require_once('../config/classes/User.php');
         require_once('../config/classes/MemberG1.php');
-       
+        require_once('../config/classes/SavingsG1.php');
+        $minMonthlySavings = SavingsG1::getMinMonthlySavings();
+
         // require_once('../config/classes/Putme.php');
         $view = new View();
         $user = new User();
@@ -69,11 +71,13 @@
                                         class="form-control" 
                                         id="savings_amount" 
                                         name="savings_amount" 
-                                        placeholder="Enter the new Savings Amount" 
+                                        placeholder="Enter the new Savings Amount"
                                         maxlength="10"
-                                        pattern="\d*" 
-                                       
+                                        pattern="\d*"
+                                        min="<?php echo $minMonthlySavings; ?>"
+                                        step="1"
                                     />
+                                    <small class="form-text text-muted">Minimum ₦<?php echo number_format($minMonthlySavings); ?> per month.</small>
                                 </div>
                             </div>
                             

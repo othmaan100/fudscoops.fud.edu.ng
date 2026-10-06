@@ -444,11 +444,82 @@ public function getWithdrawalEndorsment() {
     
 // }
 
+// Membership application with the applicant's staff/payroll details, for the treasurer's review page.
+// Returns null if the employee has no membership record.
+public function getApplicantDetails($employeeId) {
+    $con = (new DB())->getConnection();
+    $stmt = $con->prepare("
+        SELECT m.*, e.sp_no, e.title, e.fname, e.oname, e.lname, e.phone_no, e.email, e.cadre, e.dept,
+               e.permanent_address, e.nature_of_appo, e.`rank`, e.grade_level, e.step
+        FROM fudscoops_member m
+        INNER JOIN employee e ON m.employee_id = e.employee_id
+        WHERE m.employee_id = :employee_id");
+    $stmt->bindParam(':employee_id', $employeeId, PDO::PARAM_INT);
+    $stmt->execute();
+    $applicant = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$applicant) {
+        return null;
+    }
+
+    // Bank, account and grade come from the IPPIS payroll record
+    $user = new User();
+    $payroll = $user->getStaffInformation($applicant['sp_no']);
+    $applicant['bank_name'] = is_array($payroll) ? $payroll['bank_name'] : '';
+    $applicant['acctno'] = is_array($payroll) ? $payroll['acctno'] : '';
+    $applicant['grade'] = is_array($payroll) ? $payroll['grade'] : '';
+    if (empty($applicant['dept']) && is_array($payroll)) {
+        $applicant['dept'] = $payroll['dept'];
+    }
+    return $applicant;
+}
+
+// Treasurer fixes the monthly savings for an applicant (step 1 of approval; the chairman authorizes next).
+// Returns 1 on success, 0 if the applicant is not pending (already fully approved / not found),
+// -2 if the amount is blank or below the minimum, -1 on database error.
+public function treasurerApproveMembership($employeeId, $amount) {
+    require_once('SavingsG1.php');
+    $amount = SavingsG1::parseAmount($amount);
+    if ($amount === null || $amount < SavingsG1::getMinMonthlySavings()) {
+        return -2;
+    }
+
+    try {
+        $con = (new DB())->getConnection();
+        $sql = "UPDATE fudscoops_member
+                SET proposed_monthly_savings = :amount, treasurer_approval = 1
+                WHERE employee_id = :employee_id
+                  AND NOT (chairman_approval = 1 AND treasurer_approval = 1)";
+        $stmt = $con->prepare($sql);
+        $stmt->bindParam(':amount', $amount, PDO::PARAM_INT);
+        $stmt->bindParam(':employee_id', $employeeId, PDO::PARAM_INT);
+        $stmt->execute();
+
+        if ($stmt->rowCount() > 0) {
+            return 1;
+        }
+        // rowCount is 0 when nothing changed, so check the applicant is still pending
+        $check = $con->prepare("SELECT 1 FROM fudscoops_member WHERE employee_id = :employee_id
+                                  AND treasurer_approval = 1 AND chairman_approval = 0");
+        $check->bindParam(':employee_id', $employeeId, PDO::PARAM_INT);
+        $check->execute();
+        return $check->fetchColumn() ? 1 : 0;
+    } catch (Exception $e) {
+        error_log("Error in treasurerApproveMembership: " . $e->getMessage());
+        return -1;
+    }
+}
+
+// Chairman's decision on a membership application (step 2 of approval).
+// Approval only succeeds once the treasurer has fixed the amount: returns -2 otherwise.
 public function secretaryApproveRegisteration($spNo, $action, $comment) {
     $db = new DB();
     $con = $db->getConnection();
     $user = new User();
     $employeeid = $user->getEmployeeId($spNo);
+
+    if ($action !== 'Proceed' && $action !== 'Decline') {
+        return -1; // no decision button identified
+    }
 
     // Begin a transaction to ensure both operations succeed or fail together
     $con->beginTransaction();
@@ -457,6 +528,18 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
         // Determine the decision based on the action
         $decision = ($action === 'Proceed') ? 'Registration Approved' : 'Registration Rejected';
 
+        if ($action === 'Proceed') {
+            // The chairman authorizes the amount fixed by the treasurer, so the treasurer must have acted first
+            $stmtCheck = $con->prepare("SELECT 1 FROM fudscoops_member
+                                         WHERE employee_id = :employee_id AND treasurer_approval = 1 AND chairman_approval = 0");
+            $stmtCheck->bindParam(':employee_id', $employeeid);
+            $stmtCheck->execute();
+            if (!$stmtCheck->fetchColumn()) {
+                $con->rollBack();
+                return -2;
+            }
+        }
+
         // Insert into the fudscoops_membership_decision table
         $sqlInsertDecision = "INSERT INTO fudscoops_membership_decision (employee_id, decision, comment, date) 
                               VALUES (:employee_id, :decision, :comment, :date)";
@@ -464,7 +547,7 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
         $stmtInsertDecision->bindParam(':employee_id', $employeeid);
         $stmtInsertDecision->bindParam(':decision', $decision);
         $stmtInsertDecision->bindParam(':comment', $comment);
-        $stmtInsertDecision->bindParam(':date', date('Y-m-d H:i:s'));
+        $stmtInsertDecision->bindValue(':date', date('Y-m-d H:i:s'));
         $insertResult = $stmtInsertDecision->execute();
 
         if (!$insertResult) {
@@ -474,9 +557,9 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
         // If the action is 'Proceed' (Approved), update both tables
         if ($action === 'Proceed') {
             // Update fudscoops_member table
-            $sqlUpdateMember = "UPDATE fudscoops_member 
-                                SET is_active = '1', chairman_approval = '1' 
-                                WHERE fudscoops_member.employee_id = :employee_id";
+            $sqlUpdateMember = "UPDATE fudscoops_member
+                                SET is_active = '1', chairman_approval = '1'
+                                WHERE fudscoops_member.employee_id = :employee_id AND treasurer_approval = 1";
             $stmtUpdateMember = $con->prepare($sqlUpdateMember);
             $stmtUpdateMember->bindParam(':employee_id', $employeeid);
             $updateResultMember = $stmtUpdateMember->execute();
@@ -962,31 +1045,48 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
             //return $next_of_kin_name. " ". $next_of_kin_gsm. " ". $next_of_kin_address." ". $employeeid." ". $monthly_savings;
 
     
+            // Responses are always JSON: [1, spNo, monthly_savings] on success, [-1, message] on failure
+            require_once('SavingsG1.php');
+            $minimum = SavingsG1::getMinMonthlySavings();
+            $monthly_savings = SavingsG1::parseAmount($monthly_savings);
+            if ($monthly_savings === null || $monthly_savings < $minimum) {
+                return json_encode([-1, 'Enter a proposed monthly savings of at least ₦' . number_format($minimum) . '.']);
+            }
+
             $db = new DB();
             $user = new User();
             $con = $db->getConnection();
             $employeeid = $user->getEmployeeId($spNo);
-            
-            $sql ="SELECT * FROM fudscoops_member WHERE employee_id='$employeeid'";
+            if (!$employeeid) {
+                return json_encode([-1, 'Staff record not found. Contact system admin.']);
+            }
+
+            $sql ="SELECT chairman_approval, treasurer_approval FROM fudscoops_member WHERE employee_id=:employeeid";
             $stmt = $con->prepare($sql);
+            $stmt->bindParam(':employeeid', $employeeid, PDO::PARAM_INT);
             $stmt->execute();
-            $count = $stmt->rowCount();
-            if($count>0){
-                
+            $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+            if($existing){
+              if ($existing['chairman_approval'] == 1 && $existing['treasurer_approval'] == 1) {
+                  return json_encode([-1, 'Your membership has already been approved.']);
+              }
+
+              // Re-submitted application: the treasurer reviews the new amount again before the chairman
               $sql ="UPDATE fudscoops_member SET proposed_monthly_savings=:monthly_savings,next_of_kin_name=:next_of_kin_name,
-              next_of_kin_gsm=:next_of_kin_gsm,next_of_kin_address=:next_of_kin_address WHERE employee_id='$employeeid'";
+              next_of_kin_gsm=:next_of_kin_gsm,next_of_kin_address=:next_of_kin_address, treasurer_approval=0
+              WHERE employee_id=:employeeid";
               $stmt = $con->prepare($sql);
-              $stmt->bindParam(':monthly_savings', $monthly_savings,PDO::PARAM_STR);
+              $stmt->bindParam(':monthly_savings', $monthly_savings,PDO::PARAM_INT);
               $stmt->bindParam(':next_of_kin_name', $next_of_kin_name,PDO::PARAM_STR);
               $stmt->bindParam(':next_of_kin_gsm', $next_of_kin_gsm,PDO::PARAM_STR);
               $stmt->bindParam(':next_of_kin_address', $next_of_kin_address,PDO::PARAM_STR);
-              $stmt->execute();
-              if ($stmt) {
-                        return 1;
+              $stmt->bindParam(':employeeid', $employeeid, PDO::PARAM_INT);
+              if ($stmt->execute()) {
+                    return json_encode([1, $spNo, $monthly_savings]);
                 } else {
-                    return -1;
+                    return json_encode([-1, 'Cannot register. Contact system admin.']);
                 }
-              
+
             }else{
              
             
@@ -996,21 +1096,15 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
                 $stmt = $con->prepare($sql);
                 // Bind parameters
                 $stmt->bindParam(':employeeid', $employeeid,PDO::PARAM_STR);
-                $stmt->bindParam(':monthly_savings', $monthly_savings,PDO::PARAM_STR);
+                $stmt->bindParam(':monthly_savings', $monthly_savings,PDO::PARAM_INT);
                 $stmt->bindParam(':next_of_kin_name', $next_of_kin_name,PDO::PARAM_STR);
                 $stmt->bindParam(':next_of_kin_gsm', $next_of_kin_gsm,PDO::PARAM_STR);
                 $stmt->bindParam(':next_of_kin_address', $next_of_kin_address,PDO::PARAM_STR);
                 // Execute the query
-                $stmt->execute();
-                
-               // $stmt=1;
-    
-                    if ($stmt) {
-                        
-                            //return 1;
+                    if ($stmt->execute()) {
                             return json_encode([1, $spNo, $monthly_savings]);  // Returning an array with the values
                     } else {
-                        return -1;
+                        return json_encode([-1, 'Cannot register. Contact system admin.']);
                     }//end if
             }
     }
@@ -1302,7 +1396,39 @@ public function getSecretaryMembershipDecision($member_id) {
         $acctNo = htmlspecialchars($member_infor['acct_no']);
         $address = htmlspecialchars($member_infor['permanent_address']);
         $appointmentType = htmlspecialchars($member_infor['nature_of_appo']);
-        $proposed_monthly_savings = htmlspecialchars($member_infor['proposed_monthly_savings']);
+        $proposed_monthly_savings = htmlspecialchars(number_format((float) $member_infor['proposed_monthly_savings'], 2));
+
+        // The chairman authorizes the amount fixed by the treasurer
+        $treasurerApproved = $member_infor['treasurer_approval'] == 1;
+        $chairmanApproved = $member_infor['chairman_approval'] == 1;
+        $savingsLabel = $treasurerApproved ? 'Monthly Savings (fixed by Treasurer)' : 'Proposed Monthly Saving (awaiting Treasurer)';
+        if ($chairmanApproved && $treasurerApproved) {
+            $decisionSection = "<div class='alert alert-success'>This membership has already been approved.</div>";
+        } elseif (!$treasurerApproved) {
+            $decisionSection = "<div class='alert alert-warning'>Awaiting the Treasurer to fix the monthly savings amount. The Chairman can authorize the application after that.</div>";
+        } elseif (!isset($_SESSION['access_level']) || $_SESSION['access_level'] != 4) {
+            $decisionSection = "<div class='alert alert-info'>Awaiting the Chairman's authorization.</div>";
+        } else {
+            $decisionSection = "
+                            <form class='membership-decision-form'>
+                                <hr>
+                                <p class='undertaking-text'> 
+                                    <strong>Comment:</strong><br>
+                                    <label>
+                                        <input type='hidden' name='member_id' value='" . $employee_id . "'>
+                                        <input type='hidden' name='sp_no' value='" . $sp_no . "'>
+                                    </label>
+                                </p>
+                                <input type='hidden' name='type' id='type' class='form-control' value='decision'>
+                                <textarea name='comment' class='form-control' id='comment'></textarea>
+                                
+                                <button type='submit' class='btn btn-sm btn-success' id='proceed' >Approve</button>
+                                <button type='submit' class='btn btn-sm btn-danger' id='Decline' >Reject</button>
+                                
+                                <div class='msg'></div>
+                                <br>
+                            </form>";
+        }
         
       
         // Output the professional header and layout
@@ -1343,7 +1469,7 @@ public function getSecretaryMembershipDecision($member_id) {
                         </div>
                         <hr>
                         
-                         <p><strong>Proposed Monthly Saving:</strong> &#8358; $proposed_monthly_savings</p>
+                         <p><strong>$savingsLabel:</strong> &#8358; $proposed_monthly_savings</p>
                          
                          <hr>
                       
@@ -1353,24 +1479,7 @@ public function getSecretaryMembershipDecision($member_id) {
                         </strong> </p>
                         
                           <div class='form-section'>
-                            <form class='membership-decision-form'>
-                                <hr>
-                                <p class='undertaking-text'> 
-                                    <strong>Comment:</strong><br>
-                                    <label>
-                                        <input type='hidden' name='member_id' value='" . $employee_id . "'>
-                                        <input type='hidden' name='sp_no' value='" . $sp_no . "'>
-                                    </label>
-                                </p>
-                                <input type='hidden' name='type' id='type' class='form-control' value='decision'>
-                                <textarea name='comment' class='form-control' id='comment'></textarea>
-                                
-                                <button type='submit' class='btn btn-sm btn-success' id='proceed' >Approve</button>
-                                <button type='submit' class='btn btn-sm btn-danger' id='Decline' >Reject</button>
-                                
-                                <div class='msg'></div>
-                                <br>
-                            </form>  
+                            $decisionSection
                         </div>
                         
                     </div>
@@ -2102,31 +2211,33 @@ public function getSavingRecords() {
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         }
         
-        // Get PENDING applicants (chairman_approval = 0)
+        // Applicants awaiting the chairman's authorization: the treasurer has already fixed the amount
         public function getMembershipApplicants() {
-             $db = new DB(); 
+             $db = new DB();
             $con = $db->getConnection();
             $sql = "
                 SELECT m.*, e.sp_no, e.fname, e.lname, e.cadre, e.dept
                 FROM fudscoops_member m
                 INNER JOIN employee e ON m.employee_id = e.employee_id
-                WHERE m.chairman_approval = 0
+                WHERE m.treasurer_approval = 1 AND m.chairman_approval = 0
                 ORDER BY e.fname, e.lname
             ";
             $stmt = $con->prepare($sql);
             $stmt->execute();
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         }
-         // Get PENDING applicants (chairman_approval = 0)
-        public function getCharimanApprovedApplicants() {
-             $db = new DB(); 
+         // Applicants the treasurer can still set the monthly savings for: everyone not yet fully approved.
+         // treasurer_approval = 0 => awaiting the treasurer; treasurer_approval = 1 => awaiting the chairman
+         // (the amount can still be changed until the chairman authorizes it).
+        public function getTreasurerApplicants() {
+             $db = new DB();
             $con = $db->getConnection();
             $sql = "
                 SELECT m.*, e.sp_no, e.fname, e.lname, e.cadre, e.dept
                 FROM fudscoops_member m
                 INNER JOIN employee e ON m.employee_id = e.employee_id
-                WHERE m.chairman_approval = 1 and treasurer_approval= 0
-                ORDER BY e.fname, e.lname
+                WHERE NOT (m.chairman_approval = 1 AND m.treasurer_approval = 1)
+                ORDER BY m.treasurer_approval, e.fname, e.lname
             ";
             $stmt = $con->prepare($sql);
             $stmt->execute();

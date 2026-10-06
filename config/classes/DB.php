@@ -13,8 +13,8 @@ class DB{
         {
             $host = 'localhost';
             $dbname = 'fuded535_fudscoops';
-            $username = 'fuded535_hrms';
-            $password = 'hrms@fud';
+            $username = 'root';
+            $password = '';
          
             try {
                 $this->con = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
@@ -29,7 +29,8 @@ class DB{
 
         public static function cleanData($str) {
             $str = @trim($str);
-            if (get_magic_quotes_gpc()) {
+            // get_magic_quotes_gpc() was removed in PHP 8 (it always returned false since PHP 5.4)
+            if (function_exists('get_magic_quotes_gpc') && get_magic_quotes_gpc()) {
                 $str = stripslashes($str);
             }
             return $str; //mysql_real_escape_string($str);

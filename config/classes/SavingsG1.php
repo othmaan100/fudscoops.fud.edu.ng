@@ -77,17 +77,28 @@ class SavingsG1{
             return $stmt->execute() ? 1 : -1;
         }
         
+        // Requests approved by the chairman and awaiting the treasurer's approved amount.
+        // Only each member's latest request is returned; earlier_requests counts the older pending
+        // ones, which are superseded when the latest is approved.
         public function getChairmanApprovedSavingsUpdates() {
             $db = new DB();
-            $user = new User();
             $con = $db->getConnection();
             $sql = "
-                SELECT 
-                    u.*, e.sp_no, e.fname, e.lname, e.dept
+                SELECT
+                    u.id, u.employee_id, u.savings_update_amount, u.update_proposed_date,
+                    e.sp_no, e.fname, e.lname, e.oname, e.dept,
+                    m.proposed_monthly_savings,
+                    (SELECT COUNT(*) FROM fudscoops_update_savings o
+                      WHERE o.employee_id = u.employee_id AND o.id < u.id
+                        AND o.is_secretary_approved = 1 AND o.is_treasurer_approved = 0) AS earlier_requests
                 FROM fudscoops_update_savings u
                 INNER JOIN employee e ON u.employee_id = e.employee_id
+                INNER JOIN fudscoops_member m ON u.employee_id = m.employee_id
                 WHERE u.is_secretary_approved = 1 AND u.is_treasurer_approved = 0
-                ORDER BY e.fname
+                  AND NOT EXISTS (SELECT 1 FROM fudscoops_update_savings n
+                                   WHERE n.employee_id = u.employee_id AND n.id > u.id
+                                     AND n.is_secretary_approved = 1 AND n.is_treasurer_approved = 0)
+                ORDER BY e.fname, e.lname
             ";
             $stmt = $con->prepare($sql);
             $stmt->execute();
@@ -243,8 +254,14 @@ class SavingsG1{
     
     
     
-    //used in updating saving of member 
+    //used in updating saving of member
+    // Returns 1 on success, -1 on error, -2 if the amount is blank or below the minimum monthly savings
    public function updateSavingsAmount($spNo, $update_amount) {
+    $update_amount = self::parseAmount($update_amount);
+    if ($update_amount === null || $update_amount < self::getMinMonthlySavings()) {
+        return -2;
+    }
+
     $db = new DB();
     $user = new User();
     $con = $db->getConnection();
@@ -479,26 +496,123 @@ class SavingsG1{
             }
         }
         
+    // Mandatory minimum monthly savings. The treasurer can change it on Treasurer/savings_settings.php;
+    // this default applies until the fudscoops_settings table has a value.
+    const DEFAULT_MIN_MONTHLY_SAVINGS = 2000;
+
+    public static function getMinMonthlySavings() {
+        require_once('Settings.php');
+        $value = (int) Settings::get('min_monthly_savings', self::DEFAULT_MIN_MONTHLY_SAVINGS);
+        return $value > 0 ? $value : self::DEFAULT_MIN_MONTHLY_SAVINGS;
+    }
+
+    // Normalise an amount typed by the treasurer or read from a spreadsheet, e.g. "₦5,000.00" => 5000.
+    // Savings are stored in whole naira. Returns null when the value is not a usable amount
+    public static function parseAmount($value) {
+        $clean = preg_replace('/[^0-9.]/', '', (string) $value);
+        if ($clean === '' || !is_numeric($clean)) {
+            return null;
+        }
+        return (int) round((float) $clean);
+    }
+
+    // Treasurer approves one savings update request (by fudscoops_update_savings.id) with the
+    // final amount, and the member's monthly savings is updated to that amount. The member's
+    // earlier pending requests are marked superseded (is_treasurer_approved = -1).
+    // Returns 1 on success, 0 if the request is not awaiting the treasurer (already processed,
+    // not found, or a newer request exists), -2 if the amount is invalid, -1 on database error.
+    public function approveSavingsUpdateRequest($updateId, $amount) {
+        $amount = self::parseAmount($amount);
+        if ($amount === null || $amount < self::getMinMonthlySavings()) {
+            return -2;
+        }
+
+        $db = new DB();
+        $con = $db->getConnection();
+
+        try {
+            $con->beginTransaction();
+
+            // Lock the request row so it cannot be approved twice
+            $stmt = $con->prepare("
+                SELECT u.employee_id FROM fudscoops_update_savings u
+                WHERE u.id = :id AND u.is_secretary_approved = 1 AND u.is_treasurer_approved = 0
+                  AND NOT EXISTS (SELECT 1 FROM fudscoops_update_savings n
+                                   WHERE n.employee_id = u.employee_id AND n.id > u.id
+                                     AND n.is_secretary_approved = 1 AND n.is_treasurer_approved = 0)
+                FOR UPDATE
+            ");
+            $stmt->bindParam(':id', $updateId, PDO::PARAM_INT);
+            $stmt->execute();
+            $employeeId = $stmt->fetchColumn();
+
+            if (!$employeeId) {
+                $con->rollBack();
+                return 0;
+            }
+
+            $stmt1 = $con->prepare("
+                UPDATE fudscoops_update_savings
+                SET treasurer_approved_amount = :amount,
+                    is_treasurer_approved = 1,
+                    approved_at = NOW()
+                WHERE id = :id
+            ");
+            $stmt1->bindParam(':amount', $amount, PDO::PARAM_INT);
+            $stmt1->bindParam(':id', $updateId, PDO::PARAM_INT);
+            $stmt1->execute();
+
+            // Earlier pending requests by the same member are superseded by this one
+            $stmtOld = $con->prepare("
+                UPDATE fudscoops_update_savings
+                SET is_treasurer_approved = -1
+                WHERE employee_id = :employee_id AND id < :id
+                  AND is_secretary_approved = 1 AND is_treasurer_approved = 0
+            ");
+            $stmtOld->bindParam(':employee_id', $employeeId, PDO::PARAM_INT);
+            $stmtOld->bindParam(':id', $updateId, PDO::PARAM_INT);
+            $stmtOld->execute();
+
+            $stmt2 = $con->prepare("
+                UPDATE fudscoops_member
+                SET proposed_monthly_savings = :amount, savings_amount_update = CURDATE()
+                WHERE employee_id = :employee_id
+            ");
+            $stmt2->bindParam(':amount', $amount, PDO::PARAM_INT);
+            $stmt2->bindParam(':employee_id', $employeeId, PDO::PARAM_STR);
+            $stmt2->execute();
+
+            $con->commit();
+            return 1;
+        } catch (Exception $e) {
+            if ($con->inTransaction()) {
+                $con->rollBack();
+            }
+            error_log("Error in approveSavingsUpdateRequest: " . $e->getMessage());
+            return -1;
+        }
+    }
+
         // In SavingsG1.php
        public function updateTreasurerApprovedAmount($employeeId, $amount) {
-            $db = new DB(); 
+            $db = new DB();
             $con = $db->getConnection();
-        
+
             try {
                 $con->beginTransaction();
-        
+
                 // Update only the latest secretary-approved record
                 $sql1 = "
-                    UPDATE fudscoops_update_savings 
+                    UPDATE fudscoops_update_savings
                     SET treasurer_approved_amount = :amount,
                         is_treasurer_approved = 1,
                         approved_at = NOW()
                     WHERE id = (
-                        SELECT id 
-                        FROM fudscoops_update_savings 
-                        WHERE employee_id = :employee_id 
+                        SELECT id
+                        FROM fudscoops_update_savings
+                        WHERE employee_id = :employee_id
                           AND is_secretary_approved = 1
-                        ORDER BY id DESC 
+                        ORDER BY id DESC
                         LIMIT 1
                     )
                 ";
@@ -506,11 +620,11 @@ class SavingsG1{
                 $stmt1->bindParam(':amount', $amount, PDO::PARAM_INT);
                 $stmt1->bindParam(':employee_id', $employeeId, PDO::PARAM_STR);
                 $stmt1->execute();
-        
+
                 if ($stmt1->rowCount() > 0) {
                     // Update proposed monthly savings in fudscoops_member
                     $sql2 = "
-                        UPDATE fudscoops_member 
+                        UPDATE fudscoops_member
                         SET proposed_monthly_savings = :amount
                         WHERE employee_id = :employee_id
                     ";
@@ -518,7 +632,7 @@ class SavingsG1{
                     $stmt2->bindParam(':amount', $amount, PDO::PARAM_INT);
                     $stmt2->bindParam(':employee_id', $employeeId, PDO::PARAM_STR);
                     $stmt2->execute();
-        
+
                     $con->commit();
                     return $stmt2->rowCount() > 0;
                 } else {
@@ -531,6 +645,78 @@ class SavingsG1{
                 return false;
             }
 }
+
+    // Column order of the CSV the treasurer downloads and uploads back
+    public static function treasurerSavingsCsvHeader() {
+        return ['Request ID', 'Staff Number', 'Name', 'Department', 'Date Requested', 'Current Monthly Savings', 'Requested Amount', 'Approved Amount'];
+    }
+
+    // Process the approved list uploaded by the treasurer (CSV in the downloaded format).
+    // Each row is matched by Request ID and checked against the Staff Number; rows with a blank
+    // Approved Amount are left pending. Returns ['approved' => n, 'skipped' => n, 'errors' => [..]]
+    public function processTreasurerSavingsUpload($filePath) {
+        $summary = ['approved' => 0, 'skipped' => 0, 'errors' => []];
+
+        $handle = fopen($filePath, 'r');
+        if ($handle === false) {
+            $summary['errors'][] = 'Could not read the uploaded file.';
+            return $summary;
+        }
+
+        $pending = [];
+        foreach ($this->getChairmanApprovedSavingsUpdates() as $request) {
+            $pending[(int) $request['id']] = $request;
+        }
+
+        // Excel may drop leading zeros from staff numbers, so compare without them
+        $normaliseSp = function ($sp) {
+            return ltrim(strtoupper(trim($sp)), '0');
+        };
+
+        $line = 0;
+        while (($data = fgetcsv($handle, 1000, ',')) !== false) {
+            $line++;
+            // Strip a UTF-8 BOM that Excel may add to the first cell
+            $data[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) $data[0]);
+
+            if (count(array_filter($data, 'strlen')) == 0) {
+                continue; // empty row
+            }
+            if (!ctype_digit(trim($data[0]))) {
+                continue; // header or note row
+            }
+
+            $updateId = (int) trim($data[0]);
+            $spNo = isset($data[1]) ? $data[1] : '';
+            $approvedAmount = isset($data[7]) ? trim($data[7]) : '';
+
+            if ($approvedAmount === '') {
+                $summary['skipped']++;
+                continue;
+            }
+            if (!isset($pending[$updateId])) {
+                $summary['errors'][] = "Row $line: request $updateId ($spNo) is not awaiting approval (already processed, not found, or replaced by a newer request from the member). Download a fresh list.";
+                continue;
+            }
+            if ($normaliseSp($pending[$updateId]['sp_no']) !== $normaliseSp($spNo)) {
+                $summary['errors'][] = "Row $line: staff number $spNo does not match request $updateId (" . $pending[$updateId]['sp_no'] . ").";
+                continue;
+            }
+
+            $result = $this->approveSavingsUpdateRequest($updateId, $approvedAmount);
+            if ($result === 1) {
+                $summary['approved']++;
+                unset($pending[$updateId]);
+            } elseif ($result === -2) {
+                $summary['errors'][] = "Row $line: invalid approved amount \"$approvedAmount\" for $spNo (minimum ₦" . number_format(self::getMinMonthlySavings()) . ").";
+            } else {
+                $summary['errors'][] = "Row $line: could not approve request $updateId for $spNo.";
+            }
+        }
+        fclose($handle);
+
+        return $summary;
+    }
 
 
 }

@@ -2,6 +2,8 @@
         require_once('../../config/classes/View.php');
         require_once('../../config/classes/User.php');
         require_once('../../config/classes/MemberG1.php');
+        require_once('../../config/classes/SavingsG1.php');
+        $minMonthlySavings = SavingsG1::getMinMonthlySavings();
         // require_once('../config/classes/Putme.php');
         $view = new View();
         $user = new User();
@@ -72,8 +74,9 @@
                                         name="savings_amount" 
                                         placeholder="Enter the new Savings Amount" 
                                         maxlength="10"
-                                        pattern="\d*" 
-                                       
+                                        pattern="\d*"
+                                        min="<?php echo $minMonthlySavings; ?>"
+                                        step="1"
                                     />
                                 </div>
                             </div>
@@ -92,7 +95,7 @@
                            
     
                                 <div class="mt-3">
-                                    <p><strong>NB:</strong> Savings account should always be left with an amount not less than the mandatory N2,000 monthly savings.</p>
+                                    <p><strong>NB:</strong> Savings account should always be left with an amount not less than the mandatory N<?php echo number_format($minMonthlySavings); ?> monthly savings.</p>
                                 </div>
 
                     </div>
