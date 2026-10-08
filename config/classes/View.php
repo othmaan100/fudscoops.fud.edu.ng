@@ -25,6 +25,7 @@ class View{
           <!-- inject:css -->
           <link rel="stylesheet" href="css/style.css">
           <link rel="stylesheet" href="css/putme.css">
+          <link rel="stylesheet" href="css/sidebar.css">
           <script src="vendors/base/vendor.bundle.base.js"></script>
 
           <!-- endinject -->
@@ -58,6 +59,7 @@ class View{
           <!-- inject:css -->
           <link rel="stylesheet" href="'.$url.'css/style.css">
           <link rel="stylesheet" href="'.$url.'css/putme.css">
+          <link rel="stylesheet" href="'.$url.'css/sidebar.css">
           <script src="'.$url.'vendors/base/vendor.bundle.base.js"></script>
 
           <!-- endinject -->
@@ -204,535 +206,272 @@ class View{
     
     }
 
-    public function subSideNav()
+    // ===================== Sidebar menus =====================
+    // Every role menu is described as data and rendered by renderSidebar(), so all menus share the
+    // same markup and styling (css/sidebar.css). Menu entry formats:
+    //   link:  ['Label', 'mdi-icon', 'page.php']                      (optional 4th element: badge text)
+    //   group: ['Label', 'mdi-icon', 'collapse-id', [['Label', 'page.php'], ...]]
+    // The current page is highlighted by js/template.js, which also opens its group.
+
+    private function sidebarLink($item)
     {
-        $r = '<nav class="sidebar sidebar-offcanvas" id="sidebar">
-                <ul class="nav">
+        $label = htmlspecialchars($item[0]);
+        $icon = $item[1];
+        $href = $item[2];
+        $badge = isset($item[3]) ? '<span class="badge fud-badge">' . htmlspecialchars($item[3]) . '</span>' : '';
+        $disabled = $href === '#' ? ' fud-disabled' : '';
+        return '
                     <li class="nav-item">
-                        <a class="nav-link" href="index.php">
-                        <i class="mdi mdi-home menu-icon"></i>
-                        <span class="menu-title">Dashboard</span>
+                        <a class="nav-link' . $disabled . '" href="' . $href . '" title="' . $label . '">
+                        <i class="mdi ' . $icon . ' menu-icon"></i>
+                        <span class="menu-title">' . $label . '</span>' . $badge . '
                         </a>
-                    </li>
-                      
-                    <li class="nav-item">
-                        <a class="nav-link" data-toggle="collapse" href="#ui-savings" aria-expanded="false" aria-controls="ui-savings">
-                        <i class="mdi mdi mdi-credit-card-multiple menu-icon"></i>
-                        <span class="menu-title">Approval</span>
-                        <i class="menu-arrow"></i>
-                        </a>
-                        <div class="collapse" id="ui-savings">
-                          <ul class="nav flex-column sub-menu">
-                                <li class="nav-item"><a class="nav-link" href="member_list.php">Membership Registerations</a></li>
-                                 <li class="nav-item"><a class="nav-link" href="update_savings.php">Savings Update</a></li>
-                                <li class="nav-item"><a class="nav-link" href="withdrawal_endorsement.php">Savings Withdraws</a></li>
-                                <li class="nav-item"><a class="nav-link" href="complete_withdrawals.php">Complete Withdrawals</a></li>
-                                <li class="nav-item"><a class="nav-link" href="manage_share_purchase.php">Share Purchases</a></li>
-                                <li class="nav-item"><a class="nav-link" href="manage_share_transfer.php">Share Transfers</a></li>
-                                <li class="nav-item"><a class="nav-link" href="manage_share_conversion.php">Share Conversions</a></li>
-                                <li class="nav-item"><a class="nav-link" href="share_holders_view.php">View Share Holders</a></li>
-                                <li class="nav-item"><a class="nav-link" href="loans.php">Loans</a></li>
-                                <li class="nav-item"><a class="nav-link" href="member_list.php">Sales</a></li>
-                                <li class="nav-item"><a class="nav-link" href="approved_commodity_Request.php">Approved Commodity Disburstment</a></li> 
-                               
-                          </ul>
-                        </div>
-                 </li>
-            
-                    
-                    <li class="nav-item">
-                        <a class="nav-link" href="loan_deduction.php">
-                        <i class="mdi mdi-upload menu-icon"></i>
-                        <span class="menu-title">Loan Deduction</span>
-                        </a>
-                    </li>
-                    
-                    
-                            
-                    <li class="nav-item">
-                        <a class="nav-link" href="#">
-                        <i class="mdi mdi-cash-multiple menu-icon"></i>
-                        <span class="menu-title">Generate Report </span>
-                        </a>
-                    </li>  
-                    
-                    <li class="nav-item">
-                        <a class="nav-link" href="add_user.php">
-                       <i class="mdi mdi-account-plus menu-icon"></i>
-                        <span class="menu-title">Add User</span>
-                        </a>
-                    </li>
-                    
-                    <li class="nav-item">
-                        <a class="nav-link" href="password.php">
-                        <i class="mdi mdi-account-key menu-icon"></i>
-                        <span class="menu-title">Password Reset</span>
-                        </a>
-                    </li>
-                    
-                  </ul>  
-            </nav>';
-            return $r;
-    
-    }
-    public function SecretarySideNav()
-    {
-        $r = '<nav class="sidebar sidebar-offcanvas" id="sidebar">
-                <ul class="nav">
-                    <li class="nav-item">
-                        <a class="nav-link" href="index.php">
-                        <i class="mdi mdi-home menu-icon"></i>
-                        <span class="menu-title">Dashboard</span>
-                        </a>
-                    </li>
-                    
-                    
-                    <li class="nav-item">
-                        <a class="nav-link" data-toggle="collapse" href="#ui-staff" aria-expanded="false" aria-controls="ui-staff">
-                        <i class="mdi mdi-account-multiple menu-icon"></i>
-                        <span class="menu-title">Staff</span>
-                        <i class="menu-arrow"></i>
-                        </a>
-                        <div class="collapse" id="ui-staff">
-                          <ul class="nav flex-column sub-menu">
-                                <li class="nav-item"><a class="nav-link" href="view_staff.php">View Staff</a></li>
-                                <li class="nav-item"><a class="nav-link" href="share_holders_view.php">View Share Holders</a></li>
-                                 <li class="nav-item"><a class="nav-link" href="savings_view.php">View Savings</a></li>
-                                
-                              
-                               
-                          </ul>
-                        </div>
-                      </li>
-                                 
-                    <li class="nav-item">
-                        <a class="nav-link" data-toggle="collapse" href="#ui-savings" aria-expanded="false" aria-controls="ui-savings">
-                        <i class="mdi mdi mdi-credit-card-multiple menu-icon"></i>
-                        <span class="menu-title">Endorsements</span>
-                        <i class="menu-arrow"></i>
-                        </a>
-                        <div class="collapse" id="ui-savings">
-                          <ul class="nav flex-column sub-menu">
-                                <li class="nav-item"><a class="nav-link" href="member_list.php">Membership Registerations</a></li>
-                                <li class="nav-item"><a class="nav-link" href="withdrawal_endorsement.php">Savings Withdraws</a></li>
-                                <li class="nav-item"><a class="nav-link" href="complete_withdrawals.php">Complete Withdrawals</a></li>
-                                <li class="nav-item"><a class="nav-link" href="manage_shareunit.php">Update Share Unit</a></li>
-                                <li class="nav-item"><a class="nav-link" href="update_savings.php">Update Savings</a></li>
-                                <li class="nav-item"><a class="nav-link" href="share_holders_view.php">View Share Holders</a></li>
-                                <li class="nav-item"><a class="nav-link" href="loans.php">Loans</a></li>
-                                <li class="nav-item"><a class="nav-link" href="member_list.php">Sales</a></li>
-                               
-                               
-                          </ul>
-                    </div>
-                 </li>
-                
-                 
-                    
-                     <li class="nav-item">
-                        <a class="nav-link" data-toggle="collapse" href="#ui-commodity" aria-expanded="false" aria-controls="ui-commodity">
-                        <i class="mdi mdi mdi-credit-card-multiple menu-icon"></i>
-                        <span class="menu-title">Manage Commodity</span>
-                        <i class="menu-arrow"></i>
-                        </a>
-                        <div class="collapse" id="ui-commodity">
-                          <ul class="nav flex-column sub-menu">
-                                
-                                <li class="nav-item"><a class="nav-link" href="add_commodity_name.php">Add Commodity Name</a></li>
-                                <li class="nav-item"><a class="nav-link" href="view_commodity_name.php">View Commodity Name</a></li>
-                                <li class="nav-item"><a class="nav-link" href="add_item_type.php">Add Item Type</a></li>
-                                <li class="nav-item"><a class="nav-link" href="view_item_types.php">View Item Type</a></li>
-                                <li class="nav-item"><a class="nav-link" href="add_new_item.php">Add New Item</a></li>
-                                <li class="nav-item"><a class="nav-link" href="view_items.php">View Items</a></li>
-                                <li class="nav-item"><a class="nav-link" href="schedule_commodity.php">Schedule Commodity Supply</a></li>
-                                <li class="nav-item"><a class="nav-link" href="view_commodity_request.php">View Commodity Requests</a></li>
-                              
-                               
-                          </ul>
-                        </div>
-                      </li>
-                 
-                    <li class="nav-item">
-                        <a class="nav-link" href="fee.php">
-                        <i class="mdi mdi-account-card-details menu-icon"></i>
-                        <span class="menu-title">Schedule</span>
-                        </a>
-                    </li>   
-                    <li class="nav-item">
-                        <a class="nav-link" href="report.php">
-                        <i class="mdi mdi-cash-multiple menu-icon"></i>
-                        <span class="menu-title">Report</span>
-                        </a>
-                    </li>
-                    
-                    
-            </nav>';
-            return $r;
-    
-    }
-    
-        public function treasurerSideNav()
-    {
-        $r = '<nav class="sidebar sidebar-offcanvas" id="sidebar">
-                <ul class="nav">
-                    <li class="nav-item">
-                        <a class="nav-link" href="index.php">
-                        <i class="mdi mdi-home menu-icon"></i>
-                        <span class="menu-title">Dashboard</span>
-                        </a>
-                    </li>
-                      <li class="nav-item">
-                        <a class="nav-link" href="uploadDeposit.php">
-                        <i class="mdi mdi-upload menu-icon"></i>
-                        <span class="menu-title">Upload Members Savings</span>
-                        </a>
-                    </li>
-                     <li class="nav-item">
-                        <a class="nav-link" href="uploadWithdrawals.php">
-                        <i class="mdi mdi-bank-transfer-out menu-icon"></i>
-                        <span class="menu-title">Upload Members Withdrawals</span>
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" data-toggle="collapse" href="#ui-savings" aria-expanded="false" aria-controls="ui-savings">
-                        <i class="mdi mdi mdi-credit-card-multiple menu-icon"></i>
-                        <span class="menu-title">Authorization</span>
-                        <i class="menu-arrow"></i>
-                        </a>
-                        <div class="collapse" id="ui-savings">
-                          <ul class="nav flex-column sub-menu">
-                                 <li class="nav-item"><a class="nav-link" href="member_list.php">Membership Registerations</a></li>
-                                <li class="nav-item"><a class="nav-link" href="treasurer_view_approved_savings.php">Savings Update</a></li>
-                                <li class="nav-item"><a class="nav-link" href="withdrawal_endorsement.php">Savings Withdraws</a></li>
-                                <li class="nav-item"><a class="nav-link" href="complete_withdrawals.php">Complete Withdrawals</a></li>
-                                <li class="nav-item"><a class="nav-link" href="manage_share_purchase.php">Share Purchases</a></li>
-                                <li class="nav-item"><a class="nav-link" href="manage_share_transfer.php">Share Transfers</a></li>
-                                <li class="nav-item"><a class="nav-link" href="manage_share_conversion.php">Share Conversions</a></li>
-                                <li class="nav-item"><a class="nav-link" href="share_holders_view.php">View Share Holders</a></li>
-                                <li class="nav-item"><a class="nav-link" href="loans.php">Loans</a></li>
-                                <li class="nav-item"><a class="nav-link" href="member_list.php">Sales</a></li>
-                                <li class="nav-item"><a class="nav-link" href="view_commodity_request.php">Commodity Requests</a></li>
-                               
-                          </ul>
-                        </div>
-                    </li>
-                 
-                    <li class="nav-item">
-                        <a class="nav-link" href="uploadShares.php">
-                        <i class="mdi mdi-account-card-details menu-icon"></i>
-                        <span class="menu-title">Upload Members Shares</span>
-                        </a>
-                    </li>
-            
-                    <li class="nav-item">
-                        <a class="nav-link" href="upload_members_loan.php">
-                        <i class="mdi mdi-upload menu-icon"></i>
-                        <span class="menu-title">Upload Mat Spp Loan</span>
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" data-toggle="collapse" href="#ui-loan" aria-expanded="false" aria-controls="ui-loan">
-                        <i class="mdi mdi mdi-credit-card-multiple menu-icon"></i>
-                        <span class="menu-title">Loan Deductions</span>
-                        <i class="menu-arrow"></i>
-                        </a>
-                        <div class="collapse" id="ui-loan">
-                          <ul class="nav flex-column sub-menu">
-                                
-                                <li class="nav-item"><a class="nav-link" href="loan_deduction.php">Single Deductions</a></li>
-                                <li class="nav-item"><a class="nav-link" href="batch_loan_deduction.php">Batch Deductions</a></li>
-                          </ul>
-                        </div>
-                    </li>
-                  
-                      <li class="nav-item">
-                        <a class="nav-link" href="upload.php">
-                       <i class="mdi mdi-upload menu-icon"> </i>
-                        <span class="menu-title">Upload Members</span>
-                        </a>
-                    </li>
-                    
-                    <li class="nav-item">
-                        <a class="nav-link" href="view_savings.php">
-                       <i class="mdi mdi-bank menu-icon"></i>
-                        <span class="menu-title">View Members Savings</span>
-                        </a>
-                    </li>
-                    
-                     <li class="nav-item">
-                        <a class="nav-link" data-toggle="collapse" href="#ui-withdrawals" aria-expanded="false" aria-controls="ui-loan">
-                        <i class="mdi mdi mdi-credit-card-multiple menu-icon"></i>
-                        <span class="menu-title">Savings Withdrawals</span>
-                        <i class="menu-arrow"></i>
-                        </a>
-                        <div class="collapse" id="ui-withdrawals">
-                          <ul class="nav flex-column sub-menu">
-                                <li class="nav-item"><a class="nav-link" href="uploaded_withdrawals.php">View Uploaded Withdrawals</a></li>
-                                <li class="nav-item"><a class="nav-link" href="approved_withdrawals.php">View Withdrawal Approvals</a></li>
-                                <li class="nav-item"><a class="nav-link" href="view_withdrawals_report.php">Withdrawal Approvals Report</a></li>
-                          </ul>
-                        </div>
-                    </li>
-                    
-                    
-                  
-                    
-                    <li class="nav-item">
-                        <a class="nav-link" href="update_sp.php">
-                        <i class="mdi mdi-account-card-details menu-icon"></i>
-                        <span class="menu-title">Update Members Staff No</span>
-                        </a>
-                    </li>
-                            
-                    <li class="nav-item">
-                        <a class="nav-link" href="#">
-                        <i class="mdi mdi-cash-multiple menu-icon"></i>
-                        <span class="menu-title">Generate Report </span>
-                        </a>
-                    </li>          
-                  </ul>  
-            </nav>';
-            return $r;
-    
+                    </li>';
     }
 
-    
-        public function nonMemberfSideNav()
+    private function sidebarGroup($item)
     {
-        $r = '<nav class="sidebar sidebar-offcanvas" id="sidebar">
-                <ul class="nav">
+        list($label, $icon, $id, $children) = $item;
+        $label = htmlspecialchars($label);
+        $links = '';
+        foreach ($children as $child) {
+            $links .= '
+                                <li class="nav-item"><a class="nav-link" href="' . $child[1] . '">' . htmlspecialchars($child[0]) . '</a></li>';
+        }
+        return '
                     <li class="nav-item">
-                        <a class="nav-link" href="index.php">
-                        <i class="mdi mdi-home menu-icon"></i>
-                        <span class="menu-title">Dashboard</span>
+                        <a class="nav-link" data-toggle="collapse" href="#' . $id . '" aria-expanded="false" aria-controls="' . $id . '" title="' . $label . '">
+                        <i class="mdi ' . $icon . ' menu-icon"></i>
+                        <span class="menu-title">' . $label . '</span>
+                        <i class="menu-arrow"></i>
                         </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="profile.php">
-                        <i class="mdi mdi-account-check menu-icon"></i>
-                        <span class="menu-title">My Profile</span>
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="payslip.php">
-                        <i class="mdi mdi mdi-credit-card-multiple menu-icon"></i>
-                        <span class="menu-title">Payslips</span>
-                        </a>
-                    </li>
-                    
-                  <li class="nav-item">
-                                <a class="nav-link" href="register.php">
-                                <i class="mdi mdi mdi-account-circle menu-icon"></i>
-                                <span class="menu-title">Register / Update Savings</span>
-                                </a>
-                    </li> 
-            
-                
-                    
+                        <div class="collapse" id="' . $id . '">
+                            <ul class="nav flex-column sub-menu">' . $links . '
+                            </ul>
+                        </div>
+                    </li>';
+    }
+
+    // $sections: ['Section heading' => [menu entries...], ...]
+    private function renderSidebar($roleLabel, $roleIcon, $sections)
+    {
+        $username = isset($_SESSION['username']) ? htmlspecialchars($_SESSION['username']) : '';
+        $r = '<nav class="sidebar sidebar-offcanvas fud-sidebar" id="sidebar">
+                <div class="fud-sidebar-profile">
+                    <div class="fud-avatar"><i class="mdi ' . $roleIcon . '"></i></div>
+                    <div class="fud-profile-text">
+                        <span class="fud-profile-name">' . $username . '</span>
+                        <span class="fud-role-chip">' . htmlspecialchars($roleLabel) . '</span>
+                    </div>
+                </div>
+                <ul class="nav">';
+        foreach ($sections as $heading => $items) {
+            $r .= '
+                    <li class="nav-item nav-category"><span>' . htmlspecialchars($heading) . '</span></li>';
+            foreach ($items as $item) {
+                $r .= is_array($item[3] ?? null) ? $this->sidebarGroup($item) : $this->sidebarLink($item);
+            }
+        }
+        $r .= '
+                </ul>
             </nav>';
-            return $r;
-    
-    } 
-    // public function staffSideNav()
-    // {
-    //     $r = '<nav class="sidebar sidebar-offcanvas" id="sidebar">
-    //             <ul class="nav">
-    //                 <li class="nav-item">
-    //                     <a class="nav-link" href="index.php">
-    //                     <i class="mdi mdi-home menu-icon"></i>
-    //                     <span class="menu-title">Dashboard</span>
-    //                     </a>
-    //                 </li>
-    //                 <li class="nav-item">
-    //                     <a class="nav-link" href="/profile.php">
-    //                     <i class="mdi mdi-account-check menu-icon"></i>
-    //                     <span class="menu-title">My Profile</span>
-    //                     </a>
-    //                 </li>
-    //                 <li class="nav-item">
-    //                     <a class="nav-link" href="/payslip.php">
-    //                     <i class="mdi mdi mdi-credit-card-multiple menu-icon"></i>
-    //                     <span class="menu-title">Payslips</span>
-    //                     </a>
-    //                 </li>
-    //                 <li class="nav-item">
-    //                     <a class="nav-link" href="/R/complete_withdrawal.php">
-    //                     <i class="mdi mdi mdi-account-circle menu-icon"></i>
-    //                     <span class="menu-title">Complete Withrawal</span>
-    //                     </a>
-    //                 </li> 
-                    
-             
-             
-    //                 <li class="nav-item">
-    //                     <a class="nav-link" data-toggle="collapse" href="#ui-savings" aria-expanded="false" aria-controls="ui-savings">
-    //                     <i class="mdi mdi mdi-credit-card-multiple menu-icon"></i>
-    //                     <span class="menu-title">Savings</span>
-    //                     <i class="menu-arrow"></i>
-    //                     </a>
-    //                     <div class="collapse" id="ui-savings">
-    //                       <ul class="nav flex-column sub-menu">
-    //                         <li class="nav-item"><a class="nav-link" href="/R/savings/update_savings.php">Update Savings</a></li>
-    //                         <li class="nav-item"><a class="nav-link" href="/R/savings/savings_withdrawal.php">Withdraw Savings</a></li>
-    //                          <li class="nav-item"><a class="nav-link" href="/R/savings/target_savings_request.php">Target Savings request </a></li>
-    //                       </ul>
-    //                     </div>
-    //             </li>
-                
-    //               <li class="nav-item">
-    //                     <a class="nav-link" data-toggle="collapse" href="#ui-share" aria-expanded="false" aria-controls="ui-share">
-    //                     <i class="mdi mdi mdi-credit-card-multiple menu-icon"></i>
-    //                     <span class="menu-title">Share</span>
-    //                     <i class="menu-arrow"></i>
-    //                     </a>
-    //                     <div class="collapse" id="ui-share">
-    //                       <ul class="nav flex-column sub-menu">
-    //                         <li class="nav-item"><a class="nav-link" href="share_purchase.php">Share Cash Purchase</a></li>
-    //                         <li class="nav-item"><a class="nav-link" href="share_sale_transfer.php">Share Sale/Transfer</a></li>
-    //                         <li class="nav-item"><a class="nav-link" href="share_increase.php">Share Increase</a></li>
-    //                         <li class="nav-item"><a class="nav-link" href="share_view.php">View Share</a></li>
-    //                         <li class="nav-item"><a class="nav-link" href="share_dividend_view.php">View Dividend</a></li>
-    //                       </ul>
-    //                     </div>
-    //             </li>
-                
-    //             <li class="nav-item">
-    //                     <a class="nav-link" data-toggle="collapse" href="#ui-commodity" aria-expanded="false" aria-controls="ui-commodity">
-    //                     <i class="mdi mdi-food menu-icon"></i>
-    //                     <span class="menu-title">Commodity</span>
-    //                     <i class="menu-arrow"></i>
-    //                     </a>
-    //                     <div class="collapse" id="ui-commodity">
-    //                       <ul class="nav flex-column sub-menu">
-    //                         <li class="nav-item"><a class="nav-link" href="commodity_request.php">Commodity Request</a></li>
-    //                         <li class="nav-item"><a class="nav-link" href="commodity_approval.php">View Approval</a></li>
-    //                         <li class="nav-item"><a class="nav-link" href="commodity_deduction.php">View Commodity Deduction</a></li>
-    //                         <li class="nav-item"><a class="nav-link" href="special_commodity.php">Special Commodity Request</a></li>
-    //                       </ul>
-    //                     </div>
-    //             </li>
-                
-    //             <li class="nav-item">
-    //                     <a class="nav-link" data-toggle="collapse" href="#ui-loans" aria-expanded="false" aria-controls="ui-loans">
-    //                     <i class="mdi mdi mdi-credit-card-multiple menu-icon"></i>
-    //                     <span class="menu-title">Loans</span>
-    //                     <i class="menu-arrow"></i>
-    //                     </a>
-    //                     <div class="collapse" id="ui-loans">
-    //                       <ul class="nav flex-column sub-menu">
-    //                         <li class="nav-item"><a class="nav-link" href="business_loan.php">Business Loan Request</a></li>
-    //                         <li class="nav-item"><a class="nav-link" href="soft_loan.php">Soft Loan Request</a></li>
-    //                         <li class="nav-item"><a class="nav-link" href="view_loan_approval.php">View Loan Approval</a></li>
-    //                         <li class="nav-item"><a class="nav-link" href="view_laon_deduction.php">View Loan Deduction</a></li>
-                            
-    //                       </ul>
-    //                     </div>
-    //             </li>
-                    
-    //         </nav>';
-    //         return $r;
-    
-    // }    
-    
-    
-    public function staffSideNav()
-{
-    $r = '<nav class="sidebar sidebar-offcanvas" id="sidebar">
-            <ul class="nav">
-                <li class="nav-item">
-                    <a class="nav-link" href="/R/index.php">
-                    <i class="mdi mdi-home menu-icon"></i>
-                    <span class="menu-title">Dashboard</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="/R/profile.php">
-                    <i class="mdi mdi-account-check menu-icon"></i>
-                    <span class="menu-title">My Profile</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="/R/payslip.php">
-                    <i class="mdi mdi-credit-card-multiple menu-icon"></i>
-                    <span class="menu-title">Payslips</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="/R/complete_withdrawal.php">
-                    <i class="mdi mdi-account-circle menu-icon"></i>
-                    <span class="menu-title">Complete Withdrawal</span>
-                    </a>
-                </li> 
-                
-                <li class="nav-item">
-                    <a class="nav-link" data-toggle="collapse" href="#ui-savings" aria-expanded="false" aria-controls="ui-savings">
-                    <i class="mdi mdi-credit-card-multiple menu-icon"></i>
-                    <span class="menu-title">Savings</span>
-                    <i class="menu-arrow"></i>
-                    </a>
-                    <div class="collapse" id="ui-savings">
-                      <ul class="nav flex-column sub-menu">
-                        <li class="nav-item"><a class="nav-link" href="/R/savings/update_savings.php">Update Savings</a></li>
-                        <li class="nav-item"><a class="nav-link" href="/R/savings/savings_withdrawal.php">Withdraw Savings</a></li>
-                        <li class="nav-item"><a class="nav-link" href="/R/savings/target_savings_request.php">Target Savings Request</a></li>
-                      </ul>
-                    </div>
-                </li>
-                
-                <li class="nav-item">
-                    <a class="nav-link" data-toggle="collapse" href="#ui-share" aria-expanded="false" aria-controls="ui-share">
-                    <i class="mdi mdi-share-variant menu-icon"></i>
-                    <span class="menu-title">Share</span>
-                    <i class="menu-arrow"></i>
-                    </a>
-                    <div class="collapse" id="ui-share">
-                      <ul class="nav flex-column sub-menu">
-                        <li class="nav-item"><a class="nav-link" href="/R/share_purchase.php">Share Cash Purchase</a></li>
-                        <li class="nav-item"><a class="nav-link" href="/R/share_sale_transfer.php">Share Sale/Transfer</a></li>
-                        <li class="nav-item"><a class="nav-link" href="/R/share_increase.php">Share Increase</a></li>
-                        <li class="nav-item"><a class="nav-link" href="/R/share_conversion.php">Share Conversion</a></li>
-                        <li class="nav-item"><a class="nav-link" href="/R/share_view.php">View Share</a></li>
-                        <li class="nav-item"><a class="nav-link" href="/R/share_dividend_view.php">View Dividend</a></li>
-                      </ul>
-                    </div>
-                </li>
-                
-                <li class="nav-item">
-                    <a class="nav-link" data-toggle="collapse" href="#ui-commodity" aria-expanded="false" aria-controls="ui-commodity">
-                    <i class="mdi mdi-food menu-icon"></i>
-                    <span class="menu-title">Commodity</span>
-                    <i class="menu-arrow"></i>
-                    </a>
-                    <div class="collapse" id="ui-commodity">
-                      <ul class="nav flex-column sub-menu">
-                        <li class="nav-item"><a class="nav-link" href="/R/commodity_request.php">Commodity Request</a></li>
-                        <li class="nav-item"><a class="nav-link" href="/R/view_commodity_request.php">View Commodity Requests</a></li>
-                        <li class="nav-item"><a class="nav-link" href="/R/commodity_deduction.php">View Commodity Deduction</a></li>
-                        <li class="nav-item"><a class="nav-link" href="/R/special_commodity_request.php">Special Commodity Request</a></li>
-                      </ul>
-                    </div>
-                </li>
-                
-                <li class="nav-item">
-                    <a class="nav-link" data-toggle="collapse" href="#ui-loans" aria-expanded="false" aria-controls="ui-loans">
-                    <i class="mdi mdi-cash-multiple menu-icon"></i>
-                    <span class="menu-title">Loans</span>
-                    <i class="menu-arrow"></i>
-                    </a>
-                    <div class="collapse" id="ui-loans">
-                      <ul class="nav flex-column sub-menu">
-                        <li class="nav-item"><a class="nav-link" href="/R/business_loan.php">Business Loan Request</a></li>
-                        <li class="nav-item"><a class="nav-link" href="/R/soft_loan.php">Soft Loan Request</a></li>
-                        <li class="nav-item"><a class="nav-link" href="/R/view_loan_approval.php">View Loan Approval</a></li>
-                        <li class="nav-item"><a class="nav-link" href="/R/view_laon_deduction.php">View Loan Deduction</a></li>
-                      </ul>
-                    </div>
-                </li>
-                
-            </ul>
-        </nav>';
         return $r;
-}
+    }
+
+    // Chairman
+    public function subSideNav()
+    {
+        return $this->renderSidebar('Chairman', 'mdi-account-tie', [
+            'Main' => [
+                ['Dashboard', 'mdi-view-dashboard-outline', 'index.php'],
+            ],
+            'Approvals' => [
+                ['Members & Savings', 'mdi-account-group', 'ui-savings', [
+                    ['Membership Registrations', 'member_list.php'],
+                    ['Savings Update', 'update_savings.php'],
+                    ['Savings Withdrawals', 'withdrawal_endorsement.php'],
+                    ['Complete Withdrawals', 'complete_withdrawals.php'],
+                ]],
+                ['Shares', 'mdi-chart-pie', 'ui-shares', [
+                    ['Share Purchases', 'manage_share_purchase.php'],
+                    ['Share Transfers', 'manage_share_transfer.php'],
+                    ['Share Conversions', 'manage_share_conversion.php'],
+                    ['View Share Holders', 'share_holders_view.php'],
+                ]],
+                ['Loans', 'mdi-cash-multiple', 'loans.php'],
+                ['Commodity Disbursement', 'mdi-cart-outline', 'approved_commodity_Request.php'],
+            ],
+            'Operations' => [
+                ['Loan Deduction', 'mdi-file-document-box', 'loan_deduction.php'],
+                ['Generate Report', 'mdi-file-chart', 'reports.php'],
+            ],
+            'Administration' => [
+                ['Add User', 'mdi-account-plus', 'add_user.php'],
+                ['Password Reset', 'mdi-lock-reset', 'password.php'],
+            ],
+        ]);
+    }
+
+    // Secretary-General
+    public function SecretarySideNav()
+    {
+        return $this->renderSidebar('Secretary-General', 'mdi-clipboard-text', [
+            'Main' => [
+                ['Dashboard', 'mdi-view-dashboard-outline', 'index.php'],
+                ['Staff', 'mdi-account-multiple', 'ui-staff', [
+                    ['View Staff', 'view_staff.php'],
+                    ['View Share Holders', 'share_holders_view.php'],
+                    ['View Savings', 'savings_view.php'],
+                ]],
+            ],
+            'Endorsements' => [
+                ['Members & Savings', 'mdi-account-group', 'ui-savings', [
+                    ['Membership Registrations', 'member_list.php'],
+                    ['Savings Withdrawals', 'withdrawal_endorsement.php'],
+                    ['Complete Withdrawals', 'complete_withdrawals.php'],
+                    ['Update Savings', 'update_savings.php'],
+                ]],
+                ['Update Share Unit', 'mdi-chart-pie', 'manage_shareunit.php'],
+                ['Loans', 'mdi-cash-multiple', 'loans.php'],
+            ],
+            'Commodity' => [
+                ['Manage Commodity', 'mdi-cart-outline', 'ui-commodity', [
+                    ['Add Commodity Name', 'add_commodity_name.php'],
+                    ['View Commodity Names', 'view_commodity_name.php'],
+                    ['Add Item Type', 'add_item_type.php'],
+                    ['View Item Types', 'view_item_types.php'],
+                    ['Add New Item', 'add_new_item.php'],
+                    ['View Items', 'view_items.php'],
+                    ['Schedule Commodity Supply', 'schedule_commodity.php'],
+                    ['View Commodity Requests', 'view_commodity_request.php'],
+                ]],
+            ],
+            'Reports' => [
+                ['Schedule', 'mdi-calendar-clock', 'fee.php'],
+                ['Generate Report', 'mdi-file-chart', 'reports.php'],
+            ],
+        ]);
+    }
+
+    // Treasurer
+    public function treasurerSideNav()
+    {
+        return $this->renderSidebar('Treasurer', 'mdi-bank', [
+            'Main' => [
+                ['Dashboard', 'mdi-view-dashboard-outline', 'index.php'],
+            ],
+            'Authorization' => [
+                ['Members & Savings', 'mdi-account-group', 'ui-savings', [
+                    ['Membership Registrations', 'member_list.php'],
+                    ['Savings Update', 'treasurer_view_approved_savings.php'],
+                    ['Savings Withdrawals', 'withdrawal_endorsement.php'],
+                    ['Complete Withdrawals', 'complete_withdrawals.php'],
+                ]],
+                ['Shares', 'mdi-chart-pie', 'ui-shares', [
+                    ['Share Purchases', 'manage_share_purchase.php'],
+                    ['Share Transfers', 'manage_share_transfer.php'],
+                    ['Share Conversions', 'manage_share_conversion.php'],
+                    ['View Share Holders', 'share_holders_view.php'],
+                ]],
+                ['Loans', 'mdi-cash-multiple', 'loans.php'],
+                ['Commodity Requests', 'mdi-cart-outline', 'view_commodity_request.php'],
+            ],
+            'Uploads' => [
+                ['Uploads', 'mdi-cloud-upload', 'ui-uploads', [
+                    ['Members', 'upload.php'],
+                    ['Members Savings', 'uploadDeposit.php'],
+                    ['Members Withdrawals', 'uploadWithdrawals.php'],
+                    ['Members Shares', 'uploadShares.php'],
+                    ['Mat/Spp Loan', 'upload_members_loan.php'],
+                ]],
+                ['Loan Deductions', 'mdi-file-document-box', 'ui-loan', [
+                    ['Single Deductions', 'loan_deduction.php'],
+                    ['Batch Deductions', 'batch_loan_deduction.php'],
+                ]],
+            ],
+            'Records' => [
+                ['Members Savings', 'mdi-wallet', 'view_savings.php'],
+                ['Savings Withdrawals', 'mdi-bank-transfer-out', 'ui-withdrawals', [
+                    ['View Uploaded Withdrawals', 'uploaded_withdrawals.php'],
+                    ['View Withdrawal Approvals', 'approved_withdrawals.php'],
+                    ['Withdrawal Approvals Report', 'view_withdrawals_report.php'],
+                ]],
+                ['Generate Report', 'mdi-file-chart', 'reports.php'],
+            ],
+            'Settings' => [
+                ['Savings Settings', 'mdi-tune', 'savings_settings.php'],
+                ['Update Members Staff No', 'mdi-account-card-details', 'update_sp.php'],
+            ],
+        ]);
+    }
+
+    // Logged-in staff who are not yet members (UR/)
+    public function nonMemberfSideNav()
+    {
+        return $this->renderSidebar('Applicant', 'mdi-account-clock', [
+            'Main' => [
+                ['Dashboard', 'mdi-view-dashboard-outline', 'index.php'],
+                ['My Profile', 'mdi-account-check', 'profile.php'],
+                ['Payslips', 'mdi-receipt', 'payslip.php'],
+            ],
+            'Membership' => [
+                ['Register / Update Savings', 'mdi-account-plus', 'register.php'],
+            ],
+        ]);
+    }
+
+    // Members (R/)
+    public function staffSideNav()
+    {
+        return $this->renderSidebar('Member', 'mdi-account-circle', [
+            'Main' => [
+                ['Dashboard', 'mdi-view-dashboard-outline', '/R/index.php'],
+                ['My Profile', 'mdi-account-check', '/R/profile.php'],
+                ['Payslips', 'mdi-receipt', '/R/payslip.php'],
+            ],
+            'My Cooperative' => [
+                ['Savings', 'mdi-wallet', 'ui-savings', [
+                    ['Update Savings', '/R/savings/update_savings.php'],
+                    ['Withdraw Savings', '/R/savings/savings_withdrawal.php'],
+                    ['Target Savings Request', '/R/savings/target_savings_request.php'],
+                    ['Complete Withdrawal', '/R/complete_withdrawal.php'],
+                ]],
+                ['Shares', 'mdi-chart-pie', 'ui-share', [
+                    ['Share Cash Purchase', '/R/share_purchase.php'],
+                    ['Share Sale/Transfer', '/R/share_sale_transfer.php'],
+                    ['Share Increase', '/R/share_increase.php'],
+                    ['Share Conversion', '/R/share_conversion.php'],
+                    ['View Share', '/R/share_view.php'],
+                    ['View Dividend', '/R/share_dividend_view.php'],
+                ]],
+                ['Commodity', 'mdi-cart-outline', 'ui-commodity', [
+                    ['Commodity Request', '/R/commodity_request.php'],
+                    ['View Commodity Requests', '/R/view_commodity_request.php'],
+                    ['View Commodity Deduction', '/R/commodity_deduction.php'],
+                    ['Special Commodity Request', '/R/special_commodity_request.php'],
+                ]],
+                ['Loans', 'mdi-cash-multiple', 'ui-loans', [
+                    ['Business Loan Request', '/R/business_loan.php'],
+                    ['Soft Loan Request', '/R/soft_loan.php'],
+                    ['View Loan Approval', '/R/view_loan_approval.php'],
+                    ['View Loan Deduction', '/R/view_laon_deduction.php'],
+                ]],
+            ],
+        ]);
+    }
+
+    // Some pages call ICTSideNav(), which did not exist (fatal error). Show the logged-in user's menu.
+    public function ICTSideNav()
+    {
+        $level = isset($_SESSION['access_level']) ? (int) $_SESSION['access_level'] : -1;
+        switch ($level) {
+            case 4: return $this->subSideNav();
+            case 3: return $this->treasurerSideNav();
+            case 2: return $this->SecretarySideNav();
+            case 1: return $this->staffSideNav();
+            default: return $this->nonMemberfSideNav();
+        }
+    }
     public function footer()
     {
         $r = '
