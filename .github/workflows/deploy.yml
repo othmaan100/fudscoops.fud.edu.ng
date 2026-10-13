@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch: # allows manual deploys from the Actions tab
+    inputs:
+      full:
+        description: "Re-upload every file (ignore what is already on the server)"
+        type: boolean
+        default: false
 
 concurrency:
   group: ftp-deploy
@@ -14,26 +19,50 @@ jobs:
     name: Upload changed files
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout code (full history)
         uses: actions/checkout@v4
-
-      - name: Deploy via FTPS
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          port: 21
-          protocol: ftps          # explicit FTPS on port 21
-          server-dir: ./          # the FTP account's root is the site root
-          # Only changed files are uploaded; state is kept in .ftp-deploy-sync-state.json on the server.
-          exclude: |
-            **/.git*
-            **/.git*/**
-            .github/**
-            README.md
-            CHANGELOG.md
-            db/**
-            error_log
-            **/error_log
-            uploads/**
+          fetch-depth: 0
+
+      # Give each file the date of the last commit that changed it, so that
+      # unchanged files are seen as older than the copies on the server and skipped.
+      - name: Restore file dates from git history
+        uses: chetan/git-restore-mtime-action@v2
+
+      - name: Install lftp
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      # lftp reconnects and carries on if the host drops the connection mid-upload,
+      # and a re-run picks up where the last one stopped.
+      - name: Deploy via FTPS
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          FULL: ${{ inputs.full }}
+        run: |
+          ONLY_NEWER="--only-newer"
+          if [ "$FULL" = "true" ]; then ONLY_NEWER=""; fi
+
+          lftp -u "$FTP_USERNAME","$FTP_PASSWORD" -p 21 "$FTP_SERVER" <<EOF
+          set ftp:ssl-force true
+          set ftp:ssl-protect-data true
+          # The host's FTPS certificate is issued for the server's own name, not your domain.
+          set ssl:verify-certificate false
+          set ftp:passive-mode true
+          set net:timeout 30
+          set net:max-retries 20
+          set net:reconnect-interval-base 5
+          set net:reconnect-interval-max 30
+          set net:persist-retries 20
+          mirror --reverse --verbose --parallel=2 $ONLY_NEWER --no-perms \
+            --exclude '^\.git' \
+            --exclude '^README\.md$' \
+            --exclude '^CHANGELOG\.md$' \
+            --exclude '^db/' \
+            --exclude '(^|/)error_log$' \
+            --exclude '^uploads/' \
+            --exclude '^\.ftp-deploy-sync-state\.json$' \
+            ./ ./
+          bye
+          EOF
