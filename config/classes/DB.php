@@ -13,8 +13,8 @@ class DB{
         {
             $host = 'localhost';
             $dbname = 'fuded535_fudscoops';
-            $username = 'root';
-            $password = '';
+            $username = 'fuded535_hrms';
+            $password = 'hrms@fud';
          
             try {
                 $this->con = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
