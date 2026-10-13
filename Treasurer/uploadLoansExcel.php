@@ -117,8 +117,13 @@ while (($data = fgetcsv($handle, 1000, ',')) !== false) {
     $loanDate = date('Y-m-d');
     $loanStatus = "Approved";
 
-    $stmtCheck = $con->prepare("SELECT loan_id FROM fudscoops_loan WHERE member_id = :member_id");
-    $stmtCheck->execute([':member_id' => $memberId]);
+    // A member can hold several loans: update their open (not fully repaid) loan of this type, otherwise add a new loan
+    $stmtCheck = $con->prepare("SELECT l.loan_id FROM fudscoops_loan l
+         WHERE l.member_id = :member_id AND l.loan_type_id = :type AND l.loan_status IN ('Approve', 'Approved')
+           AND COALESCE(NULLIF(l.amount_recommended, 0), l.loan_amount) > (SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_loan_repayments r
+                 WHERE r.loan_id = l.loan_id AND r.status = 1 AND COALESCE(r.is_deleted, 0) = 0)
+         ORDER BY l.loan_id DESC LIMIT 1");
+    $stmtCheck->execute([':member_id' => $memberId, ':type' => $loanTypeId]);
 
     // ===========================================================
     // ================ UPDATE EXISTING LOAN ======================
@@ -151,17 +156,29 @@ while (($data = fgetcsv($handle, 1000, ',')) !== false) {
             ':amount_recommended' => $loanAmount
         ]);
 
-        // ========== Insert Repayment for Updated Loan ==========
+        // ========== Repayment schedule for Updated Loan ==========
+        // Update the schedule row (status 0) instead of adding another; deductions (status 1) are untouched
         $stmtRepay = $con->prepare("
-            INSERT INTO fudscoops_loan_repayments 
-            (member_id, loan_id, loan_repayment_amount, loan_repayment_date)
-            VALUES (:member_id, :loan_id, :repayment, NOW())
+            UPDATE fudscoops_loan_repayments SET loan_repayment_amount = :repayment, loan_repayment_date = NOW()
+            WHERE loan_id = :loan_id AND member_id = :member_id AND status = 0 AND COALESCE(is_deleted, 0) = 0
         ");
         $stmtRepay->execute([
             ':member_id' => $memberId,
             ':loan_id' => $loan_id,
             ':repayment' => $repaymentAmount
         ]);
+        if ($stmtRepay->rowCount() == 0) {
+            $stmtRepay = $con->prepare("
+                INSERT INTO fudscoops_loan_repayments 
+                (member_id, loan_id, loan_repayment_amount, loan_repayment_date)
+                VALUES (:member_id, :loan_id, :repayment, NOW())
+            ");
+            $stmtRepay->execute([
+                ':member_id' => $memberId,
+                ':loan_id' => $loan_id,
+                ':repayment' => $repaymentAmount
+            ]);
+        }
 
         $updated++;
         $status = "Loan updated successfully";

@@ -197,26 +197,14 @@ class User{
     
     public function getShareId($memberid)
     {
-            
-            $r = '';
-             $db = new DB();
-             $con = $db->getConnection();
-        
-            $q = "SELECT shares_id FROM fudscoops_shares
-                    WHERE member_id=:mem";
-            $stm = $con->prepare($q);
+            $con = (new DB())->getConnection();
+            $stm = $con->prepare("SELECT shares_id FROM fudscoops_shares
+                                  WHERE member_id = :mem AND share_status = 1 AND shares_is_deleted = 0
+                                  ORDER BY shares_id DESC LIMIT 1");
             $stm->bindParam(':mem', $memberid, PDO::PARAM_STR);
             $stm->execute();
-            $total_rows_found = $stm->rowCount();
-            if ($total_rows_found > 0) {
-                    $row = $stm->fetch(PDO::FETCH_ASSOC);
-                        $r =  $row['shares_id'];                        
-                    
-            }else {
-                $r = 0;
-            }//end if ($total_rows_found == 1)
-            $con=null;
-            return $r;
+            $r = $stm->fetchColumn();
+            return $r ? $r : 0;
     }
 
 
@@ -503,33 +491,33 @@ public function login($username, $password) {
           
     }
     
-     public function getMemberShareInformation($memberid){
-        
-            $db = new DB();
-            $user = new User();
-
-            $r = '';
-            $con = $db->getConnection();
-            
-            $array = array();
-            
-            $sql = "SELECT DISTINCT(sh.member_id), sh.unit_price, b.name AS bank, sh.bank_id, sh.teller_no, 
-                    sh.amount_paid,sh.share_status,sh.shares_amount_word,sh.date,m.*,e.* FROM fudscoops_shares sh INNER JOIN banks b 
-                    ON sh.bank_id=b.id INNER JOIN fudscoops_member m ON sh.member_id=m.member_id INNER JOIN employee e ON
-                    m.employee_id=e.employee_id WHERE sh.member_id='$memberid'";
-                
-            $stm = $con->prepare($sql);
+    public function getMemberShareInformation($memberid){
+            $con = (new DB())->getConnection();
+            $stm = $con->prepare("SELECT m.*, e.*,
+                       (SELECT COALESCE(SUM(s.amount_paid), 0) FROM fudscoops_shares s
+                         WHERE s.member_id = m.member_id AND s.share_status = 1 AND s.shares_is_deleted = 0) AS holding,
+                       (SELECT COUNT(*) FROM fudscoops_shares s WHERE s.member_id = m.member_id AND s.shares_is_deleted = 0) AS entries
+                    FROM fudscoops_member m INNER JOIN employee e ON m.employee_id = e.employee_id
+                    WHERE m.member_id = :member_id");
+            $stm->bindParam(':member_id', $memberid, PDO::PARAM_INT);
             $stm->execute();
-            $total_rows_found = $stm->rowCount();
-            if ($total_rows_found >0) {
-                    $row = $stm->fetch(PDO::FETCH_ASSOC);
-                    $array  =   $row;
-            } else {
+            $row = $stm->fetch(PDO::FETCH_ASSOC);
+            if (!$row || $row['entries'] == 0) {
                 return 0;
-            }//end if 
-            $con=null;
-            return $array;
-          
+            }
+            $latest = $this->getLatestSharePurchase($memberid);
+            $price = (new DB())->getConnection()->query("SELECT price FROM fudscoops_share_unit ORDER BY shares_unit_id DESC LIMIT 1")->fetchColumn();
+
+            $row['member_id'] = $memberid;
+            $row['amount_paid'] = (int) $row['holding'];
+            $row['shares_amount_word'] = $this->numberToWords((int) $row['holding']);
+            $row['share_status'] = $row['holding'] > 0 ? 1 : ($latest ? $latest['share_status'] : 0);
+            $row['unit_price'] = $price ? (int) $price : '';
+            $row['bank'] = $latest ? $latest['bank'] : '';
+            $row['bank_id'] = $latest ? $latest['bank_id'] : 0;
+            $row['teller_no'] = $latest ? $latest['teller_no'] : '';
+            $row['date'] = $latest ? $latest['date'] : '';
+            return $row;
     }
     
     public function updateAdminBio($username,$firstname,$othernames,$lastname,$gender,$dob,$state,$lga,$phone,$email,$address)
@@ -579,52 +567,17 @@ public function login($username, $password) {
     }
 
     
-     public function getShareBankName($memberid)
-     {
-            //$db = new DB();
-            $db = new DB();
-            $r = '';
-            $con = $db->getConnection();
-            $q = "SELECT name FROM fudscoops_shares sh JOIN banks b ON sh.bank_id = b.id
-                    WHERE sh.member_id='$memberid'";
-            $stm = $con->prepare($q);
-            $stm->execute();
-            $total_rows_found = $stm->rowCount();
-            if ($total_rows_found > 0) {
-                    $row = $stm->fetch(PDO::FETCH_ASSOC);
-                    $bankname = $row['name'];
-                   
-                    $r =  $bankname;
-                } else {
-                $r = "";
-            }//end if ($total_rows_found == 1)
-            //$con=null;
-            return $r;
+    public function getShareBankName($memberid)
+    {
+            $latest = $this->getLatestSharePurchase($memberid);
+            return $latest && $latest['bank'] ? $latest['bank'] : '';
     }
     
     
     public function getShareBankByMemberId($memberId)
     {
-            
-            $r = '';
-             $db = new DB();
-             $con = $db->getConnection();
-        
-            $q = "SELECT name AS Name FROM banks b INNER JOIN fudscoops_shares s 
-                  ON b.id=s.bank_id INNER JOIN fudscoops_member m ON s.member_id=m.member_id 
-                  INNER JOIN employee e ON m.employee_id=e.employee_id WHERE m.member_id='$memberId'";
-            $stm = $con->prepare($q);
-            $stm->execute();
-            $total_rows_found = $stm->rowCount();
-            if ($total_rows_found > 0) {
-                    $row = $stm->fetch(PDO::FETCH_ASSOC);
-                        $r =  $row['Name'];                        
-                    
-            }else {
-                $r = 0;
-            }//end if ($total_rows_found == 1)
-            $con=null;
-            return $r;
+            $latest = $this->getLatestSharePurchase($memberId);
+            return $latest && $latest['bank'] ? $latest['bank'] : 0;
     }
     
     
@@ -677,51 +630,25 @@ public function login($username, $password) {
             return $r;
     }
     
-     public function getShareAmount($spNo)
+    public function getShareAmount($spNo)
     {
-            
-            $r = '';
-             $db = new DB();
-             $con = $db->getConnection();
-        
-            $q = "SELECT amount_paid AS Amount FROM fudscoops_shares s INNER JOIN 
-                   fudscoops_member m ON s.member_id=m.member_id INNER JOIN employee e ON 
-                   m.employee_id=e.employee_id WHERE e.sp_no='$spNo'";
-            $stm = $con->prepare($q);
+            $con = (new DB())->getConnection();
+            $stm = $con->prepare("SELECT COALESCE(SUM(s.amount_paid), 0) FROM fudscoops_shares s
+                                  INNER JOIN fudscoops_member m ON s.member_id = m.member_id
+                                  INNER JOIN employee e ON m.employee_id = e.employee_id
+                                  WHERE e.sp_no = :sp AND s.share_status = 1 AND s.shares_is_deleted = 0");
+            $stm->bindParam(':sp', $spNo, PDO::PARAM_STR);
             $stm->execute();
-            $total_rows_found = $stm->rowCount();
-            if ($total_rows_found > 0) {
-                    $row = $stm->fetch(PDO::FETCH_ASSOC);
-                        $r =  $row['Amount'];                        
-                    
-            }else {
-                $r = 0;
-            }//end if ($total_rows_found == 1)
-            $con=null;
-            return $r;
+            return (int) $stm->fetchColumn();
     }
-     public function getShareAmountByMemberId($memberID)
+    public function getShareAmountByMemberId($memberID)
     {
-            
-            $r = '';
-            $db = new DB();
-            $con = $db->getConnection();
-        
-            $q = "SELECT amount_paid AS Amount FROM fudscoops_shares s INNER JOIN 
-                   fudscoops_member m ON s.member_id=m.member_id INNER JOIN employee e ON 
-                   m.employee_id=e.employee_id WHERE m.member_id='$memberID'";
-            $stm = $con->prepare($q);
+            $con = (new DB())->getConnection();
+            $stm = $con->prepare("SELECT COALESCE(SUM(amount_paid), 0) FROM fudscoops_shares
+                                  WHERE member_id = :member_id AND share_status = 1 AND shares_is_deleted = 0");
+            $stm->bindParam(':member_id', $memberID, PDO::PARAM_INT);
             $stm->execute();
-            $total_rows_found = $stm->rowCount();
-            if ($total_rows_found > 0) {
-                    $row = $stm->fetch(PDO::FETCH_ASSOC);
-                        $r =  $row['Amount'];                        
-                    
-            }else {
-                $r = 0;
-            }//end if ($total_rows_found == 1)
-            $con=null;
-            return $r;
+            return (int) $stm->fetchColumn();
     }
     
       public function getShareUnitPrice($spNo)
@@ -1323,6 +1250,18 @@ public function login($username, $password) {
     
     
 
+
+    public function getLatestSharePurchase($memberid)
+    {
+            $con = (new DB())->getConnection();
+            $stm = $con->prepare("SELECT s.*, b.name AS bank FROM fudscoops_shares s LEFT JOIN banks b ON s.bank_id = b.id
+                                  WHERE s.member_id = :member_id AND s.entry_type = 'purchase' AND s.shares_is_deleted = 0
+                                  ORDER BY s.shares_id DESC LIMIT 1");
+            $stm->bindParam(':member_id', $memberid, PDO::PARAM_INT);
+            $stm->execute();
+            $row = $stm->fetch(PDO::FETCH_ASSOC);
+            return $row ? $row : null;
+    }
 }
 
 

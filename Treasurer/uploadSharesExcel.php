@@ -1,6 +1,7 @@
 <?php
 require_once "../config/classes/DB.php";
 require_once "../config/classes/User.php";
+require_once "../config/classes/MemberG2.php";
 
 $db = new DB();
 $user = new User();
@@ -74,26 +75,24 @@ if (isset($_FILES['uploadFile'])) {
                             $stm->execute();
 
                             if ($stm->rowCount() > 0) {
-                                // Update
-                                $q = "UPDATE fudscoops_shares 
-                                      SET unit_price = :unit_price, 
-                                          amount_paid = :amount_paid, 
-                                          shares_amount_word = :amount_word, 
-                                          date = :date, 
-                                          secretary_endorse_date = :sec_endo_date,
-                                          chairman_approval_date = :chai_appro_date,
-                                          update_at = :update_at 
-                                      WHERE member_id = :member_id";
-                                $stmt = $con->prepare($q);
-                                $stmt->bindParam(':unit_price', $amountPaid, PDO::PARAM_INT);
-                                $stmt->bindParam(':amount_paid', $amountPaid, PDO::PARAM_INT);
-                                $stmt->bindParam(':amount_word', $amountWord, PDO::PARAM_STR);
-                                $stmt->bindParam(':date', $date, PDO::PARAM_STR);
-                                $stmt->bindParam(':sec_endo_date', $secretary_endo_date, PDO::PARAM_STR);
-                                $stmt->bindParam(':chai_appro_date', $chairman_app_date, PDO::PARAM_STR);
-                                $stmt->bindParam(':update_at', $update_at, PDO::PARAM_STR);
-                                $stmt->bindParam(':member_id', $memberId, PDO::PARAM_INT);
-                                $stmt->execute();
+                                // Member already has share entries (fudscoops_shares is a ledger): the file gives the
+                                // member's total holding, so add an approved 'adjustment' entry for the difference
+                                $current = MemberG2::getShareHolding($memberId);
+                                $difference = (int) $amountPaid - $current;
+                                $stmt = true;
+                                if ($difference != 0) {
+                                    $differenceWord = $user->numberToWords(abs($difference));
+                                    $q = "INSERT INTO fudscoops_shares (member_id, entry_type, unit_price, bank_id, teller_no, amount_paid, shares_amount_word, date,
+                                              share_status, secretary_comment, secretary_endorsement, chairman_comment, chairman_approval,
+                                              secretary_endorse_date, chairman_approval_date, update_at)
+                                          VALUES (:member_id, 'adjustment', :unit_price, 0, 0, :amount_paid, :amount_word, :date,
+                                              1, :sec_comment, 1, :chair_comment, 1, :sec_endo_date, :chai_appro_date, :update_at)";
+                                    $stmt = $con->prepare($q);
+                                    $stmt->execute([':member_id' => $memberId, ':unit_price' => (string) $difference, ':amount_paid' => $difference,
+                                                    ':amount_word' => $differenceWord, ':date' => $date, ':sec_comment' => $secretary_comment,
+                                                    ':chair_comment' => $chairman_comment, ':sec_endo_date' => $secretary_endo_date,
+                                                    ':chai_appro_date' => $chairman_app_date, ':update_at' => $update_at]);
+                                }
 
                                 if ($stmt) {
                                     $updated++;

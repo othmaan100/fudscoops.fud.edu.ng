@@ -12,9 +12,14 @@
         $staff_info =  $user->getStaffInformation($_SESSION['username']);
         $employeeid = $user->getEmployeeId($_SESSION['username']);
         $memberid = $user->getMemberId($employeeid);
-        $share_info = $user->getMemberShareInformation($memberid);
-        $share_unit = $user->getShareUnitInfoArray();
-        $date = !empty($share_info['date']) ? date('Y-m-d', strtotime($share_info['date'])) : date('Y-m-d');
+        require_once('../config/classes/MemberG2.php');
+        // Every purchase is a new record (see MemberG2 share ledger); show the current holding and any pending purchase
+        $sharePageTitle = isset($sharePageTitle) ? $sharePageTitle : 'CASH PURCHASE OF SHARE';
+        $unitPrice = MemberG2::shareUnitPrice();
+        $holding = MemberG2::getShareHolding($memberid);
+        $latestPurchase = $user->getLatestSharePurchase($memberid);
+        $pendingPurchase = $latestPurchase && $latestPurchase['share_status'] == 0 ? $latestPurchase : null;
+        $date = date('Y-m-d');
         
     
         //$payment = $putme->getPaymentInfoArray($_SESSION['username']);
@@ -44,7 +49,16 @@
                        <img src="../../images/logo-mini.png" style="display:block;margin-left:auto;margin-right:auto;margin-bottom:2px;margin-top:-30px; width:100px;" class="rounded mx-auto d-block" alt="logo">
                                 <h2 class="text-center">FUD STAFF COOPERATIVE SOCIETY LIMITED</h2>
                                 <h5 class="text-center">[An Interest Free Thrift and Loan Society]</h5>
-                                <h5 class="text-center mb-4" style="text-decoration: underline;">CASH PURCHASE OF SHARE</h5>
+                                <h5 class="text-center mb-4" style="text-decoration: underline;"><?php echo $sharePageTitle; ?></h5>
+                                <div class="alert alert-info">
+                                    Your shares: <strong>₦<?php echo number_format($holding); ?></strong>
+                                    <?php if ($unitPrice > 0) { ?>(<?php echo number_format(floor($holding / $unitPrice)); ?> units)<?php } ?>.
+                                    Shares are bought in whole units of <strong>₦<?php echo number_format($unitPrice); ?></strong>.
+                                    <?php if ($pendingPurchase) { ?>
+                                        <br><strong>Your purchase of ₦<?php echo number_format($pendingPurchase['amount_paid']); ?> (teller <?php echo htmlspecialchars($pendingPurchase['teller_no']); ?>) is awaiting approval.</strong>
+                                        You can buy more shares after it has been decided.
+                                    <?php } ?>
+                                </div>
                         
                                <form class="my-form form-vertical" id="form-share" method="POST" action="print.php" onsubmit="handleSubmit(event)" target="_blank">
                                     <div class="form-group row">
@@ -89,7 +103,7 @@
                                                  <div class="col-sm-2" style="flex: 1; position: relative; display: inline-block; margin-left: 10px;">
                                                   
                                                         <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 16px; color: #000;"></span>
-                                                            <input type="number" class="form-control" required id="share_amount" name="share_amount" value="<?php echo $share_info['unit_price']?>" placeholder="Amount in figures" style="padding-left: 25px;">
+                                                            <input type="number" class="form-control" required id="share_amount" name="share_amount" value="" min="<?php echo $unitPrice; ?>" step="<?php echo $unitPrice; ?>" placeholder="e.g. <?php echo number_format($unitPrice * 2); ?>" style="padding-left: 25px;">
                                                 </div>
                                             </div>
                                         </p>
@@ -109,18 +123,18 @@
                                     <div class="form-group row">
                                         <div class="col-md-6">
                                             <label for="bank_name">Bank of Payment</label>
-                                             <?php echo $view->loadBanksSharePurchase($share_info['bank_id'])?>
+                                             <?php echo $view->loadBanksSharePurchase()?>
                                         </div>
                                          <div class="col-md-6">
                                             <label for="acct-no">Teller. No:</label>
-                                            <input type="number" class="form-control" required id="tellerno" name="tellerno" value="<?php echo $share_info['teller_no']?>">
+                                            <input type="number" class="form-control" required id="tellerno" name="tellerno" value="">
                                         </div>
                                     </div>
                         
                                     <div class="form-group row">
                                         <div class="col-md-6">
                                             <label for="salary-grade">Amount Paid in Figures (₦):</label>
-                                            <input type="number" class="form-control" required id="amount_paid" name="amount_paid" value="<?php echo $share_info['amount_paid']?>">
+                                            <input type="number" class="form-control" required id="amount_paid" name="amount_paid" value="" readonly>
                                         </div>
                             
                                         <div class="col-md-6">
@@ -130,13 +144,14 @@
                                     </div>
                                     <div class="form-group">
                                         <label for="home-address">Amount in words:</label>
-                                        <input type="text" class="form-control" required id="share_amount_word" name="share_amount_word" value="<?php echo $share_info['shares_amount_word']?>">
+                                        <input type="text" class="form-control" required id="share_amount_word" name="share_amount_word" value="">
                                     </div>
                                     
                                 <div class="row">
                                     <?php
                                         // Determine if button should be disabled
-                                        if ($share_info['share_status'] == 1) {
+                                        // One purchase awaiting approval at a time
+                                        if ($pendingPurchase) {
                                             $button = 'disabled';
                                         } else {
                                             $button = '';

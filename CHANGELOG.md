@@ -17,6 +17,7 @@ at the top.
 |---|------|--------------|-------|------|
 | 1 | `db/2026-10-06_fudscoops_settings.sql` | New table `fudscoops_settings` (key/value settings). Seeds `min_monthly_savings` = 2000. | Applied 2026-10-06 | Pending |
 | 2 | `db/2026-10-06_member_approval_split.sql` | One-time fix for members with `chairman_approval = 1` and `treasurer_approval = 0`. Bulk-imported members (no chairman decision record) are set to `treasurer_approval = 1`. Applicants approved through the old flow are set back to `chairman_approval = 0` so they go through the new flow. Backs up the affected rows to `fudscoops_member_approval_backup_20261006` first; undo statement is in the file. Run after uploading the code from 2026-10-06. | Applied 2026-10-06 (220 members fixed, 1 applicant reset) | Pending |
+| 3 | `db/2026-10-08_loans_shares.sql` | Adds `entry_type` and `reference_id` columns to `fudscoops_shares` (shares become a ledger; existing rows become `'purchase'`). Adds settings `loan_max_savings_multiple` (2), `guarantor_max_open_loans` (2), `share_min_balance_after_transfer` (20000). Marks two empty records deleted (`fudscoops_shares_transfer` 2, `fudscoops_shares_conversion` 1). Run after #1 and BEFORE uploading the code from 2026-10-08 (the current code is unaffected by the new columns). | Applied 2026-10-08 | Pending |
 
 ### Meaning of the approval columns (as of 2026-10-06)
 
@@ -38,7 +39,200 @@ at the top.
 | 1 | -1 | Superseded: the member made a newer request, which was approved instead |
 | -1 | any | Rejected |
 
+`fudscoops_loan` (from 2026-10-08; one row per application):
+
+| Column | Values |
+|---|---|
+| `guarantor_status` | 0 awaiting guarantor, 1 accepted, -1 declined |
+| `chairman_approval` | 0 undecided, 1 approved, -1 declined |
+| `loan_status` | `'pending'`, `'Approve'` (Treasurer approved; bulk uploads use `'Approved'`), `'Disapprove'` (Treasurer declined) |
+| `is_action_disabled` | 1 after the Treasurer decides; the Chairman's **Unlock** sets 0 so the Treasurer can change it |
+
+`fudscoops_loan_repayments`: `status` 0 = monthly repayment schedule (`loan_repayment_amount`),
+1 = deduction received (`amount_paid`).
+
+`fudscoops_shares` (from 2026-10-08; a ledger, one row per movement; holding = sum of approved rows):
+
+| Column | Values |
+|---|---|
+| `entry_type` | `purchase`, `transfer_in`, `transfer_out` (negative amount), `conversion` (from savings), `adjustment` (bulk upload correction) |
+| `share_status` | 0 pending, 1 approved, -1 declined |
+| `secretary_endorsement`, `chairman_approval` | 0 undecided, 1 approved, -1 declined |
+
+`fudscoops_shares_transfer` (`share_transfer_status`, `secretary_endorsement`, `chairman_approval`)
+and `fudscoops_shares_conversion` (`conversion_status`, `chairman_approval`): 0 pending/undecided,
+1 approved/done, -1 declined.
+
 ---
+
+## 2026-10-08
+
+### Dashboards redesigned
+
+All five dashboards share a new look (`css/dashboard.css`, matching the sidebar): a welcome
+banner (greeting in Nigerian time, name, role, date, shortcut buttons), stat cards with icons,
+and section cards.
+
+- **Member (`R/index.php`):** monthly savings, savings balance, shares (amount and units), loans
+  outstanding, total withdrawn; notices for guarantor requests and share transfers to accept;
+  "My Pending Requests" (share purchase, conversion, savings change, withdrawals awaiting
+  approval); "My Loans" with each loan's stage and balance; recent withdrawals with bank names.
+  Fixed: "Total Unit of Shares" showed the naira amount as units (e.g. "250,000 Units").
+  The login check now runs before any data is read.
+- **Applicant (`UR/index.php`):** progress tracker (Applied → Treasurer fixes savings → Chairman
+  authorizes → Member) with an explanation of the current step, the proposed or fixed monthly
+  savings, date applied and the latest decision.
+- **Chairman, Treasurer, Secretary-General:** one shared page
+  (`config/dashboards/officer_dashboard.php`) with **Needs Your Attention**: counts of items
+  waiting at that officer's step, each linking to the list (same conditions as the lists);
+  personal notices (guarantor requests, share transfers); **Cooperative Overview** (members,
+  savings balance, share capital, loans outstanding, latest deduction month). The Secretary's
+  previous seven cards always showed 0; the Chairman's and Treasurer's dashboards had only a heading.
+- Accounts without a staff record (e.g. `chairman`) are greeted by role instead of an error message.
+
+Files:
+- New: `config/classes/Dashboard.php` (dashboard figures, read-only), `config/dashboards/officer_dashboard.php`, `css/dashboard.css`
+- Changed: `R/index.php`, `UR/index.php`, `Chairman/index.php`, `Treasurer/index.php`, `Secretary/index.php`,
+  `config/classes/View.php` (loads `css/dashboard.css`)
+- Database: none
+
+### Generate Report fixes (found during the loan and shares review)
+
+- Loans approved through the system are saved with `loan_status = 'Approve'`; bulk-uploaded
+  loans with `'Approved'`. Reports counted only `'Approved'`, so they would have missed loans
+  approved by the Treasurer in the system. Both are now counted.
+- `fudscoops_shares.unit_price` holds the purchase amount, not the unit price, so share
+  purchase "Units" always showed 1. Units now use the current unit price (₦3,000).
+- Monthly loan repayments saved by the Treasurer's approval contain thousands separators
+  (e.g. "18,333.33"); they are now read correctly.
+- Withdrawals report: new **Type** column (Cash / Converted to shares). Share conversions are
+  recorded as savings withdrawals with `withdrawal_type_id = 2`.
+
+Files: `config/classes/Report.php`. Database: none.
+
+### Shares module
+
+- **Several purchases per member.** `fudscoops_shares` is now a ledger: every purchase is a new
+  record; a member's holding is the total of approved records. A purchase no longer edits the
+  member's existing record, and new amounts are not approved until the Treasurer confirms them.
+- **Approval order enforced:** Secretary endorses → Chairman approves → Treasurer confirms. Each
+  step is refused until the previous one is done.
+- **Treasurer Decline now rejects** the purchase (`share_status = -1`). Secretary and Chairman
+  declines are also saved as -1 and close the purchase.
+- **Transfers to a member with no shares no longer lose the shares.** An approved transfer adds a
+  `transfer_out` entry (negative) for the sender and a `transfer_in` entry for the receiver, in one
+  database transaction; if anything fails, nothing changes. The amount comes from the transfer
+  being approved (previously the sender's oldest transfer).
+- **Declined transfers and conversions** are saved as -1 (previously 0, the same as pending).
+- **Conversions** (savings → shares) are new records each time; on approval a `conversion` share
+  entry and a savings withdrawal (type 2) are recorded in one transaction.
+- **Share Increase** now saves a new share purchase (it is the purchase page with its own heading).
+  It previously submitted a savings-to-shares conversion.
+- **Eligibility (standard practice):** only approved members; amounts in whole units of the unit
+  price (₦3,000), at least one unit; amount paid must equal the share amount; teller number and
+  bank required; a teller number cannot be used twice; one purchase awaiting approval at a time.
+  Transfers: receiver must be an approved member and not the sender, no more than the sender's
+  holding (less transfers awaiting approval), at least ₦20,000 must remain (setting), one pending
+  transfer at a time; only the receiver can accept. Conversions: at most the savings balance less
+  the minimum monthly savings.
+- **Pages:** purchase and conversion pages show the member's shares, open blank (no longer
+  pre-filled with the old record) and are no longer disabled for good after the first approval.
+  The member's **View Share** shows each entry and the balance; **View Share Holders** shows one
+  line per member with the total.
+- **Bulk share upload** sets a member's total by adding an `adjustment` entry for the difference
+  (it previously overwrote the member's record).
+- The purchase slip prints the logged-in member's latest purchase.
+- The unused `ajax/share_transfer.php` (moved shares with no approval) now refuses.
+- The receiver's **Accept Shares** button now updates after accepting (a PHP string was swallowing
+  the JavaScript `${transferId}`).
+
+### Loans module
+
+- **Each application creates a new loan record**; an existing loan is never overwritten. A member
+  can hold several loans over time.
+- **Soft Loans are saved as Soft Loans** (the form now says which loan type it is). Each form only
+  offers repayment periods within the type's maximum (Business 3/6/7, Soft 3/6/9 months).
+- **Eligibility checks:** approved member; one open (pending or not fully repaid) loan per type;
+  open loans plus the new loan ≤ 2 × savings balance (setting); repayment period within the
+  type's maximum; Soft Loans only for members on target savings (as the page already required).
+- **Guarantor checks enforced on the server:** guarantor must exist, be an approved member, not be
+  the applicant, not be junior staff (JP), and not already guarantee 2 open loans (setting). The
+  **Verify** button shows the same result. The guarantor can now also **Decline**; only the
+  guarantor named on the loan can decide.
+- **Workflow:** guarantor → Chairman → Treasurer, each enforced. The **Secretary can only view
+  loans**: decision, tenor change and unlock requests from the Secretary are refused.
+- **Declines are distinct:** Chairman decline is saved as -1 (previously 0, the same as
+  undecided); guarantor decline as -1. Lists show the stage in words (Awaiting guarantor /
+  Awaiting Chairman / Awaiting Treasurer / Approved / Declined by …) and the loan type.
+- **Treasurer buttons no longer damage repayment records:** approving creates or updates only the
+  repayment schedule row (status 0); declining removes only the schedule row; deductions received
+  (status 1) are never changed or deleted. A decided loan can only be changed after the Chairman
+  unlocks it.
+- The monthly repayment is saved as a plain number (no thousands separator). The 6% formula is
+  unchanged (see Known issues).
+- **Repayments:** recording a deduction is refused for loans that are not approved, and no longer
+  turns the schedule row into a payment.
+- **Bulk uploads:** the loan upload updates the member's open loan of the same type (or adds a new
+  loan) and updates its schedule row instead of adding another; the deduction upload posts to the
+  member's open approved loan of that type.
+- The member dashboard's loan total counts approved loans only.
+
+### Safari and messages
+
+- All officer decision forms (loans, shares, transfers, conversions, withdrawals, membership)
+  record the clicked button instead of relying on keyboard focus, which Safari does not set.
+- Officer and member forms show the reason when a request is refused instead of
+  "Contact system admin".
+
+### Logins
+
+- Every loan and share endpoint now checks the role: members for applications, purchases,
+  transfers, conversions and guarantor decisions (using the logged-in staff number, not the one in
+  the form); Chairman, Treasurer or Secretary for their own steps.
+
+### Settings
+
+- **Savings Settings** (Treasurer) has a new **Loan and Share Rules** section: loan limit
+  (× savings balance), loans one member may guarantee, minimum shares kept after a transfer.
+
+### Files changed on 2026-10-08
+
+| File | Change |
+|---|---|
+| `db/2026-10-08_loans_shares.sql` | **New** – database changes (#3 above) |
+| `config/classes/MemberG2.php` | Share ledger: purchases, approvals, transfers, conversions, views, eligibility helpers |
+| `config/classes/MemberG3.php` | Loans: new record per application, eligibility, guarantor rules, decisions, repayments, stage labels |
+| `config/classes/User.php` | Share helpers read the ledger total; new `getLatestSharePurchase()` |
+| `config/classes/MemberG1.php` | Dashboard loan total: approved loans only |
+| `config/classes/Report.php` | Report fixes (morning); share entry types in Summary, Statement and Shares reports |
+| `js/custom.js` | Safari button fix, server messages, guarantor decline, loan/share form messages |
+| `ajax/business_loan.php` | Loan type from form, logged-in member, eligibility messages |
+| `ajax/verify_guarantor.php` | Same guarantor rules as the application |
+| `ajax/undertaking.php` | Guarantor accept/decline, logged-in guarantor only |
+| `ajax/guarantor_decision.php` | Logged-in guarantor only (not used by the pages) |
+| `ajax/process_loan_decision.php` | Role checks; Secretary refused; repayment saved as a plain number |
+| `ajax/updateLoanTenor.php` | Chairman/Treasurer only, pending loans only, within maximum tenor |
+| `ajax/unlock_loan_decision.php` | Chairman only |
+| `ajax/save_repayment.php` | Treasurer only |
+| `ajax/getLoanRepaymentAmount.php` | Officers only |
+| `ajax/share_purchase.php` | Logged-in member; new record per purchase |
+| `ajax/share_pending_transfer.php` | Logged-in member |
+| `ajax/share_pending_conversion.php` | Logged-in member |
+| `ajax/accept_transfer_share.php` | Logged-in receiver only |
+| `ajax/share_transfer.php` | Disabled (direct transfer without approval) |
+| `ajax/check_worth.php`, `ajax/verifyBuyer.php` | Logged-in member only |
+| `ajax/process_share_decision.php` | Role checks per step |
+| `ajax/process_share_transfer_decision.php` | Role checks per step |
+| `ajax/process_share_conversion_decision.php` | Role checks; removed broken Secretary branch |
+| `R/share_purchase.php` | Blank form, shows shares and pending purchase, whole units |
+| `R/share_increase.php` | Now the purchase page with "SHARE INCREASE" heading |
+| `R/share_conversion.php` | Blank form, shows shares and savings, not disabled after the first approval |
+| `R/print.php` | Purchase slip: logged-in member's latest purchase |
+| `R/business_loan.php`, `R/soft_loan.php` | Loan type field; repayment periods within the type's maximum |
+| `Treasurer/savings_settings.php` | Loan and Share Rules section |
+| `Treasurer/uploadLoansExcel.php` | Updates the open loan of the same type or adds a new one; no duplicate schedule rows |
+| `Treasurer/uploadLoansDeductionExcel.php` | Deductions go to the open approved loan of the type |
+| `Treasurer/uploadSharesExcel.php`, `Secretary/uploadSharesExcel.php` | Adjustment entry instead of overwriting |
 
 ## 2026-10-06
 
@@ -217,6 +411,22 @@ Files:
 
 ## Known issues not yet addressed
 
+### Loans
+- Interest (left as is on request, 2026-10-08): the Treasurer's approval saves the monthly
+  repayment with 6% annual interest, while the society is described as interest-free, bulk-uploaded
+  loans have no interest, and the amount preview (`ajax/getLoanRepaymentAmount.php`) shows the
+  amount without interest.
+- Status spelling differs: `'Approve'` (system) vs `'Approved'` (bulk uploads). Code and reports
+  accept both.
+- Many existing loans have two schedule rows from earlier re-uploads (304 rows for 155 loans);
+  the latest is used.
+
+### Shares
+- 564 of 685 holdings recorded before 2026-10-08 are not whole units of ₦3,000 (one is ₦85).
+  New purchases, transfers and conversions must be whole units.
+
+### Other
+
 - Chairman rejection only records the decision; the applicant stays in the Chairman's list.
   (The Chairman's list no longer has a Reject option; the old details page
   `Chairman/view_proposed_member_details.php` still has one but is no longer linked.)
@@ -237,3 +447,6 @@ Files:
 - Menu links to pages not present in this copy: Chairman **Loan Deduction**
   (`Chairman/loan_deduction.php`) and Secretary **Schedule** (`Secretary/fee.php`).
 - Passwords are stored as unsalted MD5.
+- Several officer-level logins look like test accounts and should be reviewed or removed:
+  Secretary level (2) `q`, `jj`, `jj2`, `jj3`, `ssss`, `DD`, `Mahboob`, `SP/R/2075`; Treasurer level
+  (3) `ict` (local database, 2026-10-08).

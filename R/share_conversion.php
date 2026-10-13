@@ -16,7 +16,14 @@
         $memberid = $user->getMemberId($employeeid);
         $share_info = $user->getMemberShareInformation($memberid);
         $share_unit = $user->getShareUnitInfoArray();
-        $date = !empty($share_info['date']) ? date('Y-m-d', strtotime($share_info['date'])) : date('Y-m-d');
+        $date = date('Y-m-d');
+        // A member can convert savings several times; one conversion at a time until it is decided
+        require_once('../config/classes/MemberG2.php');
+        $unitPrice = MemberG2::shareUnitPrice();
+        $pendingStmt = (new DB())->getConnection()->prepare("SELECT amount_paid FROM fudscoops_shares_conversion
+                                  WHERE member_id = :member_id AND conversion_status = 0 AND share_conversion_is_deleted = 0 AND chairman_approval = 1");
+        $pendingStmt->execute([':member_id' => $memberid]);
+        $pendingConversion = $pendingStmt->fetchColumn();
         $currentsavings= $member1-> getCurrentSavingsAmount($_SESSION['username']);
         
     
@@ -48,6 +55,14 @@
                                 <h2 class="text-center">FUD STAFF COOPERATIVE SOCIETY LIMITED</h2>
                                 <h5 class="text-center">[An Interest Free Thrift and Loan Society]</h5>
                                 <h5 class="text-center mb-4" style="text-decoration: underline;">CONVERSION OF SAVINGS TO SHARE</h5>
+                                <div class="alert alert-info">
+                                    Your shares: <strong>₦<?php echo number_format($share_info ? $share_info['amount_paid'] : 0); ?></strong>.
+                                    Savings balance: <strong>₦<?php echo number_format((float) $currentsavings); ?></strong>.
+                                    Conversions are in whole units of <strong>₦<?php echo number_format($unitPrice); ?></strong>.
+                                    <?php if ($pendingConversion !== false) { ?>
+                                        <br><strong>Your conversion of ₦<?php echo number_format((float) $pendingConversion); ?> is awaiting the Treasurer.</strong>
+                                    <?php } ?>
+                                </div>
                         
                                <form class="my-form form-vertical" id="share_conversion" method="POST" action="print.php" onsubmit="handleSubmit(event)" target="_blank">
                                     <div class="form-group row">
@@ -107,7 +122,7 @@
                                     <div class="form-group row">
                                         <div class="col-md-6">
                                             <label for="salary-grade">Amount Paid in Figures (₦):</label>
-                                            <input type="number" class="form-control" required id="amount_paid2" name="amount_paid" value="<?php echo $share_info['amount_paid']?>">
+                                            <input type="number" class="form-control" required id="amount_paid2" name="amount_paid" value="" min="<?php echo $unitPrice; ?>" step="<?php echo $unitPrice; ?>">
                                         </div>
                             
                                         <div class="col-md-6">
@@ -117,13 +132,14 @@
                                     </div>
                                     <div class="form-group">
                                         <label for="home-address">Amount in words:</label>
-                                        <input type="text" class="form-control" required id="share_amount_word" name="share_amount_word" value="<?php echo $share_info['shares_amount_word']?>">
+                                        <input type="text" class="form-control" required id="share_amount_word" name="share_amount_word" value="">
                                     </div>
                                     
                                 <div class="row">
                                     <?php
                                         // Determine if button should be disabled
-                                        if ($share_info['share_status'] == 1) {
+                                        // Only while a conversion is with the Treasurer (a pending one awaiting the Chairman can still be changed)
+                                        if ($pendingConversion !== false) {
                                             $button = 'disabled';
                                         } else {
                                             $button = '';

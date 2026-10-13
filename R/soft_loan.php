@@ -47,6 +47,7 @@
                         <h3 class="text-center mb-4"> SOFT LOAN APPLICATION</h3>
                 
                         <form id="business_loan">
+                            <input type="hidden" name="loan_type" value="soft">
                             <div class="form-group row">
                                 <div class="col-md-6">
                                     <label for="name">Name:</label>
@@ -115,30 +116,21 @@
                                     Repayment Period:
                                 </p>
                                 <div class="row">
-                                    <div class="col-md-3 offset-1 mb-2">
+                                    <?php
+                                    // Repayment periods allowed for this loan type (fudscoops_loan_type.loan_type_max_tenor)
+                                    $tenorStmt = (new DB())->getConnection()->prepare("SELECT loan_type_max_tenor FROM fudscoops_loan_type WHERE loan_type_name = :name");
+                                    $tenorStmt->execute([':name' => 'Soft Loan']);
+                                    $maxTenor = (int) $tenorStmt->fetchColumn();
+                                    $tenors = array_filter([3, 6, 9, 12], function ($t) use ($maxTenor) { return $t <= $maxTenor; });
+                                    if ($maxTenor > 0 && !in_array($maxTenor, $tenors)) { $tenors[] = $maxTenor; }
+                                    foreach (array_values($tenors) as $i => $t) { ?>
+                                    <div class="col-md-3 <?php echo $i === 0 ? 'offset-1' : ''; ?> mb-2">
                                         <div class="d-flex align-items-center">
-                                            <label class="form-check-label ms-2" for="loan_repayment_3">3 months</label>
-                                            <input type="radio" class="form-check-input" id="loan_repayment_3" name="loan_repayment" value="3" required>
+                                            <label class="form-check-label ms-2" for="loan_repayment_<?php echo $t; ?>"><?php echo $t; ?> months</label>
+                                            <input type="radio" class="form-check-input" id="loan_repayment_<?php echo $t; ?>" name="loan_repayment" value="<?php echo $t; ?>" <?php echo $i === 0 ? 'required' : ''; ?>>
                                         </div>
                                     </div>
-                                    <div class="col-md-3 mb-2">
-                                        <div class="d-flex align-items-center">
-                                            <label class="form-check-label ms-2" for="loan_repayment_6">6 months</label>
-                                            <input type="radio" class="form-check-input" id="loan_repayment_6" name="loan_repayment" value="6">
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3 mb-2">
-                                        <div class="d-flex align-items-center">
-                                            <label class="form-check-label ms-2" for="loan_repayment_9">9 months</label>
-                                            <input type="radio" class="form-check-input" id="loan_repayment_9" name="loan_repayment" value="9">
-                                        </div>
-                                    </div>
-                                    <div class="col-md-2 mb-2">
-                                        <div class="d-flex align-items-center">
-                                            <label class="form-check-label ms-2" for="loan_repayment_12">12 months</label>
-                                            <input type="radio" class="form-check-input" id="loan_repayment_12" name="loan_repayment" value="12" >
-                                        </div>
-                                    </div>
+                                    <?php } ?>
                                    
                                     
                                 </div>

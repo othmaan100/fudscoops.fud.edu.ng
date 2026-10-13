@@ -347,117 +347,48 @@ class MemberG3{
 }
 //=======================Hussain methode start from here==========================================================================
 
+    // ===================== Loans (from 2026-10-08) =====================
+    // Every application is a new fudscoops_loan record (a member can hold several loans over time).
+    // Workflow: guarantor accepts/declines (guarantor_status 1/-1) -> Chairman approves/declines
+    // (chairman_approval 1/-1) -> Treasurer fixes the amount and approves/declines (loan_status
+    // 'Approve'/'Disapprove'; bulk uploads use 'Approved'). The Secretary only views loans.
+    // Repayment rows: status 0 = monthly schedule (loan_repayment_amount), status 1 = actual deduction
+    // (amount_paid); officer actions never change or delete status 1 rows. Eligibility and guarantor rules
+    // are in loanEligibilityError()/guarantorError() at the end of the class.
+    // These methods return 1 on success, otherwise a message explaining the refusal.
     public function saveLoanApplication($amountApplied, $loanRepayment, $loanRepaymentSpecify, $memberId, $loanTypeId, $guarantor) {
     $db = new DB();
-    $iterms = $db->cleanData($_POST['meterials']);
-    $reason = $db->cleanData($_POST['reason']);
-    $supplier_name = $db->cleanData($_POST['supplier_name']);
-    $supplier_address = $db->cleanData($_POST['supplier_address']);
-    $supplier_gsm = $db->cleanData($_POST['supplier_gsm']);
-    $account_number = $db->cleanData($_POST['account_number']);
-    $bank = $db->cleanData($_POST['bank']);
-    $con = $db->getConnection();
-
-    // Get the current date
-    $loanDate = date('Y-m-d'); 
-    $loanStatus = 'pending';
+    $post = function ($name) use ($db) { return $db->cleanData(isset($_POST[$name]) ? $_POST[$name] : ''); };
+    $amount = preg_replace('/[^0-9.]/', '', (string) $amountApplied);
+    $amount = ($amount === '' || !is_numeric($amount)) ? null : round((float) $amount, 2);
     $loanTenor = !empty($loanRepaymentSpecify) ? $loanRepaymentSpecify : $loanRepayment;
 
-    $sqlCheck = "SELECT loan_id FROM fudscoops_loan WHERE member_id = :member_id";
-    $stmtCheck = $con->prepare($sqlCheck);
-    $stmtCheck->bindParam(':member_id', $memberId, PDO::PARAM_INT);
-    $stmtCheck->execute();
+    if ($error = $this->loanEligibilityError($memberId, $loanTypeId, $amount, $loanTenor, $guarantor)) {
+        return $error;
+    }
 
-    if ($stmtCheck->rowCount() > 0) {
-        // Update existing loan
-        $loanData = $stmtCheck->fetch(PDO::FETCH_ASSOC);
-        $loan_id = $loanData['loan_id'];
+    $con = $db->getConnection();
+    try {
+        $con->beginTransaction();
+        $stmt = $con->prepare("INSERT INTO fudscoops_loan (loan_amount, loan_date, loan_status, loan_tenor, reason, iterm_name, loan_type_id, member_id,
+                                   guarantor_employee_id, guarantor_status, chairman_approval, is_action_disabled)
+                               VALUES (:loan_amount, CURDATE(), 'pending', :loan_tenor, :reason, :iterm_name, :loan_type_id, :member_id, :guarantor, 0, 0, 0)");
+        $stmt->execute([':loan_amount' => (string) $amount, ':loan_tenor' => (string) (int) $loanTenor, ':reason' => $post('reason'),
+                        ':iterm_name' => $post('meterials'), ':loan_type_id' => $loanTypeId, ':member_id' => $memberId, ':guarantor' => $guarantor]);
+        $loanId = $con->lastInsertId();
 
-        $sqlUpdate = "UPDATE fudscoops_loan 
-                      SET loan_amount = :loan_amount, loan_date = :loan_date, loan_status = :loan_status, 
-                          loan_tenor = :loan_tenor, loan_type_id = :loan_type_id, iterm_name = :iterm_name, 
-                          reason = :reason, guarantor_employee_id= :guarantor  
-                      WHERE loan_id = :loan_id";
-        $stmtUpdate = $con->prepare($sqlUpdate);
-        $stmtUpdate->bindParam(':loan_amount', $amountApplied, PDO::PARAM_STR);
-        $stmtUpdate->bindParam(':loan_date', $loanDate, PDO::PARAM_STR);
-        $stmtUpdate->bindParam(':loan_status', $loanStatus, PDO::PARAM_STR);
-        $stmtUpdate->bindParam(':loan_tenor', $loanTenor, PDO::PARAM_STR);
-        $stmtUpdate->bindParam(':iterm_name', $iterms, PDO::PARAM_STR);
-        $stmtUpdate->bindParam(':reason', $reason, PDO::PARAM_STR);
-        $stmtUpdate->bindParam(':loan_type_id', $loanTypeId, PDO::PARAM_INT);
-        $stmtUpdate->bindParam(':guarantor', $guarantor, PDO::PARAM_INT);
-        $stmtUpdate->bindParam(':loan_id', $loan_id, PDO::PARAM_INT);
-
-        if ($stmtUpdate->execute()) {
-            // Update supplier information
-            $sqlCheckSupplier = "SELECT * FROM fudscoops_suppliers WHERE loan_id = :loan_id";
-            $stmtCheckSupplier = $con->prepare($sqlCheckSupplier);
-            $stmtCheckSupplier->bindParam(':loan_id', $loan_id, PDO::PARAM_INT);
-            $stmtCheckSupplier->execute();
-
-            if ($stmtCheckSupplier->rowCount() > 0) {
-                // Update existing supplier
-                $sqlUpdateSupplier = "UPDATE fudscoops_suppliers 
-                                      SET address = :address, gsm = :gsm, account_number = :account_number, bank_id = :bank_id WHERE loan_id = :loan_id";
-                $stmtUpdateSupplier = $con->prepare($sqlUpdateSupplier);
-                $stmtUpdateSupplier->bindParam(':address', $supplier_address, PDO::PARAM_STR);
-                $stmtUpdateSupplier->bindParam(':gsm', $supplier_gsm, PDO::PARAM_STR);
-                $stmtUpdateSupplier->bindParam(':account_number', $account_number, PDO::PARAM_STR);
-                $stmtUpdateSupplier->bindParam(':bank_id', $bank, PDO::PARAM_STR);
-                $stmtUpdateSupplier->bindParam(':loan_id', $loan_id, PDO::PARAM_INT);
-                $stmtUpdateSupplier->execute();
-            } else {
-                // Insert new supplier
-                $sqlInsertSupplier = "INSERT INTO fudscoops_suppliers (supplier_name, address, gsm, account_number, bank_id, loan_id) 
-                                      VALUES (:supplier_name, :address, :gsm, :account_number, :bank_id, :loan_id)";
-                $stmtInsertSupplier = $con->prepare($sqlInsertSupplier);
-                $stmtInsertSupplier->bindParam(':supplier_name', $supplier_name, PDO::PARAM_STR);
-                $stmtInsertSupplier->bindParam(':address', $supplier_address, PDO::PARAM_STR);
-                $stmtInsertSupplier->bindParam(':gsm', $supplier_gsm, PDO::PARAM_STR);
-                $stmtInsertSupplier->bindParam(':account_number', $account_number, PDO::PARAM_STR);
-                $stmtInsertSupplier->bindParam(':bank_id', $bank, PDO::PARAM_STR);
-                $stmtInsertSupplier->bindParam(':loan_id', $loan_id, PDO::PARAM_INT);
-                $stmtInsertSupplier->execute();
-            }
-
-            return 1; 
-        } else {
-            return -1;
+        $stmt = $con->prepare("INSERT INTO fudscoops_suppliers (supplier_name, address, gsm, account_number, bank_id, loan_id)
+                               VALUES (:supplier_name, :address, :gsm, :account_number, :bank_id, :loan_id)");
+        $stmt->execute([':supplier_name' => $post('supplier_name'), ':address' => $post('supplier_address'), ':gsm' => $post('supplier_gsm'),
+                        ':account_number' => $post('account_number'), ':bank_id' => $post('bank'), ':loan_id' => $loanId]);
+        $con->commit();
+        return 1;
+    } catch (Exception $e) {
+        if ($con->inTransaction()) {
+            $con->rollBack();
         }
-    } else {
-        // Insert new loan
-        $sqlInsert = "INSERT INTO fudscoops_loan (loan_amount, loan_date, loan_status, loan_tenor, reason, iterm_name, loan_type_id, member_id, guarantor_employee_id) 
-                      VALUES (:loan_amount, :loan_date, :loan_status, :loan_tenor, :reason, :iterm_name, :loan_type_id, :member_id, :guarantor)";
-        $stmtInsert = $con->prepare($sqlInsert);
-        $stmtInsert->bindParam(':loan_amount', $amountApplied, PDO::PARAM_STR);
-        $stmtInsert->bindParam(':loan_date', $loanDate, PDO::PARAM_STR);
-        $stmtInsert->bindParam(':loan_status', $loanStatus, PDO::PARAM_STR);
-        $stmtInsert->bindParam(':loan_tenor', $loanTenor, PDO::PARAM_STR);
-        $stmtInsert->bindParam(':reason', $reason, PDO::PARAM_STR);
-        $stmtInsert->bindParam(':iterm_name', $iterms, PDO::PARAM_STR);
-        $stmtInsert->bindParam(':loan_type_id', $loanTypeId, PDO::PARAM_INT);
-        $stmtInsert->bindParam(':guarantor', $guarantor, PDO::PARAM_INT);
-        $stmtInsert->bindParam(':member_id', $memberId, PDO::PARAM_INT);
-
-        if ($stmtInsert->execute()) {
-            $lastId = $con->lastInsertId();
-            // Insert supplier information
-            $sqlInsertSupplier = "INSERT INTO fudscoops_suppliers (supplier_name, address, gsm, account_number,bank_id, loan_id) 
-                                  VALUES (:supplier_name, :address, :gsm, :account_number, :bank_id, :loan_id)";
-            $stmtInsertSupplier = $con->prepare($sqlInsertSupplier);
-            $stmtInsertSupplier->bindParam(':supplier_name', $supplier_name, PDO::PARAM_STR);
-            $stmtInsertSupplier->bindParam(':address', $supplier_address, PDO::PARAM_STR);
-            $stmtInsertSupplier->bindParam(':gsm', $supplier_gsm, PDO::PARAM_STR);
-            $stmtInsertSupplier->bindParam(':account_number', $account_number, PDO::PARAM_STR);
-            $stmtInsertSupplier->bindParam(':bank_id', $bank, PDO::PARAM_STR);
-            $stmtInsertSupplier->bindParam(':loan_id', $lastId, PDO::PARAM_INT);
-            $stmtInsertSupplier->execute();
-
-            return 1; 
-        } else {
-            return -1;
-        }
+        error_log('saveLoanApplication: ' . $e->getMessage());
+        return 'Could not save the loan application. Contact system admin.';
     }
 }
     public function saveLoanApplicationUpload($amountApplied, $loanRepayment, $loanTenor, $repayment,$memberId, $loanTypeId, $guarantor) {
@@ -659,7 +590,7 @@ public function checkGuarantor($guarantor_id) {
     // Get all loan details associated with the guarantor
     $sql = "SELECT 
                 m.member_id, e.fname, e.lname,
-                l.loan_id, l.loan_amount, l.loan_date, l.loan_status
+                l.loan_id, l.loan_amount, l.loan_date, l.loan_status, l.guarantor_status, l.chairman_approval
             FROM 
                 fudscoops_loan l
             JOIN 
@@ -699,7 +630,7 @@ public function checkGuarantor($guarantor_id) {
             echo "<td>" . htmlspecialchars($loan['fname'] . ' ' . $loan['lname']) . "</td>";
             echo "<td>" . htmlspecialchars($loan['loan_amount']) . "</td>";
             echo "<td>" . htmlspecialchars($loan['loan_date']) . "</td>";
-            echo "<td>" . htmlspecialchars($loan['loan_status']) . "</td>";
+            echo "<td>" . htmlspecialchars(self::loanStageLabel($loan)) . "</td>";
             echo "<td>
                     <a href='undertaking.php?loan_id=" . htmlspecialchars($loan['loan_id']) . "' class='btn btn-primary'>Make Undertaking</a>
                   </td>";
@@ -776,7 +707,7 @@ public function getMyloan($member_id) {
             echo "<td>" . htmlspecialchars($loan['fname'] . ' ' . $loan['lname']) . "</td>";
             echo "<td>" . htmlspecialchars($loan['loan_amount']) . "</td>";
             echo "<td>" . $loan_type . "</td>";
-            echo "<td>" . htmlspecialchars($loan['loan_status']) . "</td>";
+            echo "<td>" . htmlspecialchars(self::loanStageLabel($loan)) . "</td>";
             echo "<td>" . htmlspecialchars($loan['amount_recommended']) . "</td>";
             echo "<td>". htmlspecialchars($loan['update_at'])."</td>";
             echo "<td>".$repayment."</td>";
@@ -897,7 +828,7 @@ public function getLoansTable() {
     // Get all loan details associated with the guarantor
     $sql = "SELECT 
                 m.member_id, e.fname, e.lname,
-                l.loan_id, l.loan_amount,l.loan_date,l.loan_status,l.secretary_decision
+                l.loan_id, l.loan_amount,l.loan_date,l.loan_status,l.secretary_decision, l.guarantor_status, l.chairman_approval, (SELECT lt.loan_type_name FROM fudscoops_loan_type lt WHERE lt.loan_type_id = l.loan_type_id) AS loan_type_name
             FROM 
                 fudscoops_loan l
             JOIN 
@@ -940,9 +871,9 @@ public function getLoansTable() {
             echo "<tr>";
             echo "<td>" . $sn . "</td>";
             echo "<td>" . htmlspecialchars($loan['fname'] . ' ' . $loan['lname']) . "</td>";
-            echo "<td>" . htmlspecialchars($loan['loan_amount']) . "</td>";
+            echo "<td>" . htmlspecialchars($loan['loan_amount']) . "<br><small class='text-muted'>" . htmlspecialchars($loan['loan_type_name'] ?? '') . "</small></td>";
             echo "<td>" . htmlspecialchars($loan['loan_date']) . "</td>";
-            echo "<td>" . $status . "</td>";
+            echo "<td>" . htmlspecialchars(self::loanStageLabel($loan)) . "</td>";
             echo "<td>
                     <a href='view_loan_details.php?loan_id=" . htmlspecialchars($loan['loan_id']) . "' class='btn btn-primary'>View Details</a>
                   </td>";
@@ -975,7 +906,7 @@ public function getProceedLoansTable() {
     // Get all loan details associated with the guarantor
     $sql = "SELECT 
                 m.member_id, e.fname, e.lname,
-                l.loan_id, l.loan_amount,l.loan_date,l.loan_status,l.secretary_decision
+                l.loan_id, l.loan_amount,l.loan_date,l.loan_status,l.secretary_decision, l.guarantor_status, l.chairman_approval, (SELECT lt.loan_type_name FROM fudscoops_loan_type lt WHERE lt.loan_type_id = l.loan_type_id) AS loan_type_name
             FROM 
                 fudscoops_loan l
             JOIN 
@@ -1019,10 +950,10 @@ public function getProceedLoansTable() {
             echo "<tr>";
             echo "<td>" . $sn . "</td>";
             echo "<td>" . htmlspecialchars($loan['fname'] . ' ' . $loan['lname']) . "</td>";
-            echo "<td>" . htmlspecialchars($loan['loan_amount']) . "</td>";
+            echo "<td>" . htmlspecialchars($loan['loan_amount']) . "<br><small class='text-muted'>" . htmlspecialchars($loan['loan_type_name'] ?? '') . "</small></td>";
             echo "<td>" . htmlspecialchars($loan['loan_date']) . "</td>";
            
-            echo "<td>" . htmlspecialchars($loan['loan_status']) . "</td>";
+            echo "<td>" . htmlspecialchars(self::loanStageLabel($loan)) . "</td>";
             echo "<td>
                     <a href='view_loan_details.php?loan_id=" . htmlspecialchars($loan['loan_id']) . "' class='btn btn-primary'>View Details</a>
                   </td>";
@@ -1057,7 +988,7 @@ public function getLoansDeductionTable() {
     // Get all loan details associated with the guarantor
     $sql = "SELECT 
                 m.member_id, e.fname, e.lname,e.oname,
-                l.loan_id, l.loan_amount,l.loan_date,l.loan_status,l.secretary_decision,lr.*
+                l.loan_id, l.loan_amount,l.loan_date,l.loan_status,l.secretary_decision, l.guarantor_status, l.chairman_approval, (SELECT lt.loan_type_name FROM fudscoops_loan_type lt WHERE lt.loan_type_id = l.loan_type_id) AS loan_type_name,lr.*
             FROM 
                 fudscoops_loan l
             JOIN 
@@ -1108,7 +1039,7 @@ public function getLoansDeductionTable() {
             echo "<td>" . htmlspecialchars($loan['fname'] . ' ' . $loan['lname'].$loan['oname']) . "</td>";
             echo "<td>" . htmlspecialchars($loan['loan_amount']) . "</td>";
             echo "<td>" . htmlspecialchars($loan['loan_date']) . "</td>";
-            echo "<td>" . htmlspecialchars($loan['loan_status']) . "</td>";
+            echo "<td>" . htmlspecialchars(self::loanStageLabel($loan)) . "</td>";
             echo "<td>
                     <a href='view_loan_deduction_details.php?loan_id=" . htmlspecialchars($loan['loan_id']) . "' class='btn btn-primary'>View Details</a>
                   </td>";
@@ -1294,108 +1225,87 @@ public function getProcessLoansDeductionTable($loan_id) {
 }
 
 
-public function updateGuaranto($loan_id){
-        $db = new DB();
-        $con = $db->getConnection();
-            $status = 1; 
-            $date=date('Y-m-d');
-            // Update loan status in the database
-            $updateSql = "UPDATE fudscoops_loan SET guarantor_status = :status ,guarantor_approved_date=:date WHERE loan_id = :loan_id";
-            $updateStmt = $con->prepare($updateSql);
-            $updateStmt->bindParam(':status', $status);
-            $updateStmt->bindParam(':loan_id', $loan_id);
-            $updateStmt->bindParam(':date', $date);
-            $updateStmt->execute();
-            if($updateStmt){
-                return 1;
-            }else{
-                return -1;
-            }
-            
-
+    public function updateGuaranto($loan_id, $accept = true, $guarantorEmployeeId = null){
+        $con = (new DB())->getConnection();
+        if ($guarantorEmployeeId === null) {
+            $guarantorEmployeeId = (new User())->getEmployeeId(isset($_SESSION['username']) ? $_SESSION['username'] : '');
+        }
+        $stmt = $con->prepare("UPDATE fudscoops_loan SET guarantor_status = :status, guarantor_approved_date = :date
+                               WHERE loan_id = :loan_id AND guarantor_employee_id = :guarantor AND guarantor_status = 0");
+        $stmt->execute([':status' => $accept ? 1 : -1, ':date' => date('Y-m-d'), ':loan_id' => $loan_id, ':guarantor' => $guarantorEmployeeId]);
+        return $stmt->rowCount() > 0 ? 1 : 'This loan is not awaiting your decision as guarantor.';
 }
 
-public function processLoan($loan_id,$member_id,$repayment,$action,$amount=''){
-        $db = new DB();
-        $con = $db->getConnection();
-            $date=date('Y-m-d');
-            // Update loan status in the database
-            $is_action_disabled=1;
-            $updateSql = "UPDATE fudscoops_loan SET loan_status = :status ,amount_recommended=:amount,update_at=:date ,is_action_disabled =:disabled WHERE loan_id = :loan_id";
-            $updateStmt = $con->prepare($updateSql);
-            $updateStmt->bindParam(':status', $action);
-            $updateStmt->bindParam(':loan_id', $loan_id);
-            $updateStmt->bindParam(':amount', $amount);
-            $updateStmt->bindParam(':date', $date);
-            $updateStmt->bindParam(':disabled', $is_action_disabled);
-            $updateStmt->execute();
-            if($updateStmt){
-                //insert only if the loan is approved
-                    if($action=='Approve'){
-                        $is_deleted = 0;
-                        // Check if the record exists
-                        $sql = "SELECT * FROM fudscoops_loan_repayments WHERE loan_id = :loan_id AND member_id = :member_id AND is_deleted = :is_deleted";
-                        $stmt = $con->prepare($sql);
-                        $stmt->bindParam(':loan_id', $loan_id, PDO::PARAM_INT);
-                        $stmt->bindParam(':member_id', $member_id, PDO::PARAM_INT);
-                        $stmt->bindParam(':is_deleted', $is_deleted, PDO::PARAM_INT);
-                        $stmt->execute();
-                        if ($stmt->rowCount() > 0) {
-                            // Record exists, update it
-                            $row = $stmt->fetch(PDO::FETCH_ASSOC);
-                            $sql = "UPDATE fudscoops_loan_repayments 
-                                    SET loan_repayment_amount = :repayment, loan_repayment_date = NOW() 
-                                    WHERE loan_id = :loan_id AND member_id = :member_id AND loan_repayment_id = :loan_repayment_id";
-                            $stmt = $con->prepare($sql);
-                            $stmt->bindParam(':loan_id', $loan_id, PDO::PARAM_INT); 
-                            $stmt->bindParam(':repayment', $repayment, PDO::PARAM_STR); 
-                            $stmt->bindParam(':member_id', $member_id, PDO::PARAM_INT);
-                            $stmt->bindParam(':loan_repayment_id', $row['loan_repayment_id'], PDO::PARAM_INT);
-                            $stmt->execute();
-                            if ($stmt) {
-                                return 1; 
-                            } else {
-                                return -1;
-                            }
-                        } else {
-                            // Record doesn't exist, insert a new one
-                            $sql = "INSERT INTO fudscoops_loan_repayments (member_id, loan_id, loan_repayment_amount, loan_repayment_date)
-                                    VALUES (:member_id, :loan_id, :repayment, NOW())";
-                            $stmt = $con->prepare($sql);
-                            $stmt->bindParam(':loan_id', $loan_id, PDO::PARAM_INT); 
-                            $stmt->bindParam(':repayment', $repayment, PDO::PARAM_STR);
-                            $stmt->bindParam(':member_id', $member_id, PDO::PARAM_INT);
-                            $stmt->execute();
-                            
-                            if ($stmt->rowCount() > 0) {
-                                return 1; // Successfully inserted
-                            } else {
-                                return -1; // Insertion failed
-                            }
-                        }
+    public function processLoan($loan_id,$member_id,$repayment,$action,$amount=''){
+        $action = strtolower(trim((string) $action));
+        if ($action === 'approve' || $action === 'approved') {
+            $status = 'Approve';
+        } elseif ($action === 'disapprove' || $action === 'deapproved' || $action === 'decline') {
+            $status = 'Disapprove';
+        } else {
+            return 'Please click Approve or Decline.';
+        }
+        $amount = preg_replace('/[^0-9.]/', '', (string) $amount);
+        if ($status === 'Approve' && ($amount === '' || (float) $amount <= 0)) {
+            return 'Enter the approved loan amount.';
+        }
+        $repayment = round((float) preg_replace('/[^0-9.]/', '', (string) $repayment), 2);
 
-                        
-                    }else{
-                         //deleted from repayment
-                        $deleted = 1;
-                        $sql = "UPDATE fudscoops_loan_repayments SET is_deleted = :deleted WHERE loan_id = :loan_id AND member_id = :member_id";
-                        $stmt = $con->prepare($sql);
-                        $stmt->bindParam(':loan_id', $loan_id, PDO::PARAM_INT); 
-                        $stmt->bindParam(':member_id', $member_id, PDO::PARAM_INT);
-                        $stmt->bindParam(':deleted', $deleted, PDO::PARAM_INT);
-                        $stmt->execute();
-                        if ($stmt) {
-                            return 1;
-                        } else {
-                            return -1;
-                        }
-
-                    }
-            }else{
-                return -1;
+        $con = (new DB())->getConnection();
+        try {
+            $con->beginTransaction();
+            $stmt = $con->prepare("SELECT chairman_approval, loan_status, is_action_disabled FROM fudscoops_loan
+                                   WHERE loan_id = :loan_id AND member_id = :member_id FOR UPDATE");
+            $stmt->execute([':loan_id' => $loan_id, ':member_id' => $member_id]);
+            $loan = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$loan) {
+                throw new RuntimeException('Loan not found.');
             }
-            
+            if ($loan['chairman_approval'] != 1) {
+                throw new RuntimeException("The Chairman has not approved this loan.");
+            }
+            // A decided loan can only be changed after the Chairman unlocks it
+            if ($loan['loan_status'] !== 'pending' && $loan['is_action_disabled'] == 1) {
+                throw new RuntimeException('This loan has already been decided. The Chairman must unlock it before it can be changed.');
+            }
 
+            $stmt = $con->prepare("UPDATE fudscoops_loan SET loan_status = :status, amount_recommended = :amount, update_at = :date, is_action_disabled = 1
+                                   WHERE loan_id = :loan_id");
+            $stmt->execute([':status' => $status, ':amount' => $status === 'Approve' ? (int) round((float) $amount) : null,
+                            ':date' => date('Y-m-d'), ':loan_id' => $loan_id]);
+
+            if ($status === 'Approve') {
+                $stmt = $con->prepare("SELECT loan_repayment_id FROM fudscoops_loan_repayments
+                                       WHERE loan_id = :loan_id AND member_id = :member_id AND status = 0 AND COALESCE(is_deleted, 0) = 0
+                                       ORDER BY loan_repayment_id DESC LIMIT 1");
+                $stmt->execute([':loan_id' => $loan_id, ':member_id' => $member_id]);
+                $scheduleId = $stmt->fetchColumn();
+                if ($scheduleId) {
+                    $stmt = $con->prepare("UPDATE fudscoops_loan_repayments SET loan_repayment_amount = :repayment, loan_repayment_date = NOW()
+                                           WHERE loan_repayment_id = :id");
+                    $stmt->execute([':repayment' => (string) $repayment, ':id' => $scheduleId]);
+                } else {
+                    $stmt = $con->prepare("INSERT INTO fudscoops_loan_repayments (member_id, loan_id, loan_repayment_amount, loan_repayment_date, amount_paid, status, is_deleted)
+                                           VALUES (:member_id, :loan_id, :repayment, NOW(), 0, 0, 0)");
+                    $stmt->execute([':member_id' => $member_id, ':loan_id' => $loan_id, ':repayment' => (string) $repayment]);
+                }
+            } else {
+                $stmt = $con->prepare("UPDATE fudscoops_loan_repayments SET is_deleted = 1
+                                       WHERE loan_id = :loan_id AND member_id = :member_id AND status = 0");
+                $stmt->execute([':loan_id' => $loan_id, ':member_id' => $member_id]);
+            }
+            $con->commit();
+            return 1;
+        } catch (Exception $e) {
+            if ($con->inTransaction()) {
+                $con->rollBack();
+            }
+            if (!($e instanceof RuntimeException)) {
+                error_log('processLoan: ' . $e->getMessage());
+                return 'Could not save the loan decision. Contact system admin.';
+            }
+            return $e->getMessage();
+        }
 }
 
 public function getUndertaking($loan_id) {
@@ -1441,7 +1351,8 @@ public function getUndertaking($loan_id) {
         $acctNo = htmlspecialchars($info['acct_no']);
         $address = htmlspecialchars($info['permanent_address']);
         $appointmentType = htmlspecialchars($info['nature_of_appo']);
-            if($loanDetails['guarantor_status']==1){
+            // The guarantor decides once: accepted (1) or declined (-1)
+            if($loanDetails['guarantor_status']!=0){
                 $button="disabled";
                 $check="checked";
             }else{
@@ -1506,7 +1417,8 @@ public function getUndertaking($loan_id) {
                                 </div>
                                 <div class='msg'></div>
                                 <br>
-                                <button type='submit' class='btn btn-success' $button>Submit Undertaking</button>
+                                <button type='submit' class='btn btn-success' id='guarantorAccept' $button>Submit Undertaking</button>
+                                <button type='submit' class='btn btn-danger' id='guarantorDecline' formnovalidate $button>Decline to Guarantee</button>
                           </form>    
                         </div>
                     </div>
@@ -2625,55 +2537,35 @@ public function updateLoanTenor($loan_id,$tenor) {
     }
 }
  
-public function toBeProceed($loan_id,$member_id,$action,$comment) {
-    $db = new DB();
-    $con = $db->getConnection();
-    $date =date('Y-m-d');
-    if($action =='Proceed'){
-        $decision =1;
-    }else{
-        $decision =0;
-    }
-    $sql = "UPDATE fudscoops_loan SET secretary_decision =:decision,secretary_date=:date,secretary_comment=:comment WHERE loan_id=:loan_id AND member_id=:member_id";
-    
-    $stmt = $con->prepare($sql);
-    $stmt->bindParam(':date', $date, PDO::PARAM_STR);
-    $stmt->bindParam(':decision', $decision, PDO::PARAM_INT);
-    $stmt->bindParam(':loan_id', $loan_id, PDO::PARAM_INT);
-    $stmt->bindParam(':member_id', $member_id, PDO::PARAM_INT);
-    $stmt->bindParam(':comment', $comment, PDO::PARAM_STR);
-    $stmt->execute();
-    if ($stmt) {
-         return 1;
-    } else {
-        return 0; 
-    }
+    public function toBeProceed($loan_id,$member_id,$action,$comment) {
+        return 'The Secretary can view loans but not decide on them.';
 }
-public function chairmanDecision($loan_id,$member_id,$action,$comment) {
-    $db = new DB();
-    $con = $db->getConnection();
-    $date =date('Y-m-d');
-   
-            if($action =='Proceed'){
-                $decision =1;
-            }else{
-                $decision =0;
-            }
-        $sql = "UPDATE fudscoops_loan SET chairman_approval =:decision,chairman_approval_date=:date,chairman_comment=:comment WHERE loan_id=:loan_id AND member_id=:member_id";
-        
-        $stmt = $con->prepare($sql);
-        $stmt->bindParam(':date', $date, PDO::PARAM_STR);
-        $stmt->bindParam(':decision', $decision, PDO::PARAM_INT);
-        $stmt->bindParam(':loan_id', $loan_id, PDO::PARAM_INT);
-        $stmt->bindParam(':member_id', $member_id, PDO::PARAM_INT);
-        $stmt->bindParam(':comment', $comment, PDO::PARAM_STR);
-        $stmt->execute();
-        if ($stmt) {
-             return 1;
+    public function chairmanDecision($loan_id,$member_id,$action,$comment) {
+        $action = strtolower(trim((string) $action));
+        if ($action === 'proceed') {
+            $decision = 1;
+        } elseif ($action === 'decline') {
+            $decision = -1;
         } else {
-            return 0; 
+            return 'Please click Proceed or Decline.';
         }
-
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("UPDATE fudscoops_loan SET chairman_approval = :decision, chairman_approval_date = :date, chairman_comment = :comment
+                               WHERE loan_id = :loan_id AND member_id = :member_id AND guarantor_status = 1 AND loan_status = 'pending'");
+        $stmt->execute([':decision' => $decision, ':date' => date('Y-m-d'), ':comment' => (string) $comment, ':loan_id' => $loan_id, ':member_id' => $member_id]);
+        if ($stmt->rowCount() > 0) {
+            return 1;
+        }
+        $stmt = $con->prepare("SELECT guarantor_status, loan_status, chairman_approval FROM fudscoops_loan WHERE loan_id = :id");
+        $stmt->execute([':id' => $loan_id]);
+        $loan = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($loan && $loan['guarantor_status'] != 1) {
+            return 'The guarantor has not accepted this loan.';
+        }
+        if ($loan && $loan['chairman_approval'] == $decision) {
+            return 1; // same decision saved again
+        }
+        return 'This loan has already been decided by the Treasurer.';
 }
 public function chairmanUnlockLoandDecision($loan_id,$member_id) {
     $db = new DB();
@@ -2770,55 +2662,29 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
     
 }
 
-public function saveRepayment($loan_id, $member_id, $amount_paid, $repayment_date, $loan_repayment_amount) {
-    $db = new DB();
-    $con = $db->getConnection();
-    $status = 1;
-    $date_paid = date('Y-m-d');
-
-    // Check if repayment for this month already exists
-    $checkSql = "SELECT loan_repayment_id FROM fudscoops_loan_repayments 
-                 WHERE loan_id = :loan_id 
-                   AND member_id = :member_id 
-                   AND DATE_FORMAT(loan_repayment_date, '%Y-%m') = DATE_FORMAT(:repayment_date, '%Y-%m')";
-    $checkStmt = $con->prepare($checkSql);
-    $checkStmt->bindParam(':loan_id', $loan_id);
-    $checkStmt->bindParam(':member_id', $member_id);
-    $checkStmt->bindParam(':repayment_date', $repayment_date);
-    $checkStmt->execute();
-
-    if ($checkStmt->rowCount() > 0) {
-        // date existing repayment
-        $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
-        $updateSql = "UPDATE fudscoops_loan_repayments 
-                      SET amount_paid = :amount_paid,
-                          date_paid = :date_paid,
-                          status = :status,
-                          loan_repayment_amount = :loan_repayment_amount
-                      WHERE loan_repayment_id = :repayment_id";
-        $updateStmt = $con->prepare($updateSql);
-        $updateStmt->bindParam(':amount_paid', $amount_paid);
-        $updateStmt->bindParam(':date_paid', $date_paid);
-        $updateStmt->bindParam(':status', $status);
-        $updateStmt->bindParam(':loan_repayment_amount', $loan_repayment_amount);
-        $updateStmt->bindParam(':repayment_id', $existing['loan_repayment_id']);
-        return $updateStmt->execute() ? 1 : 0;
-
-    } else {
-        // sert new repayment
-        $insertSql = "INSERT INTO fudscoops_loan_repayments 
-                      (loan_id, member_id, amount_paid, loan_repayment_date, date_paid, status, loan_repayment_amount)
-                      VALUES (:loan_id, :member_id, :amount_paid, :repayment_date, :date_paid, :status, :loan_repayment_amount)";
-        $insertStmt = $con->prepare($insertSql);
-        $insertStmt->bindParam(':loan_id', $loan_id);
-        $insertStmt->bindParam(':member_id', $member_id);
-        $insertStmt->bindParam(':amount_paid', $amount_paid);
-        $insertStmt->bindParam(':repayment_date', $repayment_date);
-        $insertStmt->bindParam(':date_paid', $date_paid);
-        $insertStmt->bindParam(':status', $status);
-        $insertStmt->bindParam(':loan_repayment_amount', $loan_repayment_amount);
-        return $insertStmt->execute() ? 1 : 0;
+    public function saveRepayment($loan_id, $member_id, $amount_paid, $repayment_date, $loan_repayment_amount) {
+    $con = (new DB())->getConnection();
+    $stmt = $con->prepare("SELECT 1 FROM fudscoops_loan WHERE loan_id = :loan_id AND member_id = :member_id AND loan_status IN ('Approve', 'Approved')");
+    $stmt->execute([':loan_id' => $loan_id, ':member_id' => $member_id]);
+    if (!$stmt->fetchColumn()) {
+        return 0;
     }
+    $date_paid = date('Y-m-d');
+    $checkStmt = $con->prepare("SELECT loan_repayment_id FROM fudscoops_loan_repayments
+                                WHERE loan_id = :loan_id AND member_id = :member_id AND status = 1 AND COALESCE(is_deleted, 0) = 0
+                                  AND DATE_FORMAT(loan_repayment_date, '%Y-%m') = DATE_FORMAT(:repayment_date, '%Y-%m')");
+    $checkStmt->execute([':loan_id' => $loan_id, ':member_id' => $member_id, ':repayment_date' => $repayment_date]);
+    $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
+    if ($existing) {
+        $stmt = $con->prepare("UPDATE fudscoops_loan_repayments SET amount_paid = :amount_paid, date_paid = :date_paid, loan_repayment_amount = :loan_repayment_amount
+                               WHERE loan_repayment_id = :repayment_id");
+        return $stmt->execute([':amount_paid' => $amount_paid, ':date_paid' => $date_paid, ':loan_repayment_amount' => $loan_repayment_amount,
+                               ':repayment_id' => $existing['loan_repayment_id']]) ? 1 : 0;
+    }
+    $stmt = $con->prepare("INSERT INTO fudscoops_loan_repayments (loan_id, member_id, amount_paid, loan_repayment_date, date_paid, status, loan_repayment_amount, is_deleted)
+                           VALUES (:loan_id, :member_id, :amount_paid, :repayment_date, :date_paid, 1, :loan_repayment_amount, 0)");
+    return $stmt->execute([':loan_id' => $loan_id, ':member_id' => $member_id, ':amount_paid' => $amount_paid, ':repayment_date' => $repayment_date,
+                           ':date_paid' => $date_paid, ':loan_repayment_amount' => $loan_repayment_amount]) ? 1 : 0;
 }
 
  // get total loan paid 
@@ -2936,4 +2802,134 @@ public function getRepaymentAmount($loan_id, $member_id) {
 
 
 
+
+    public function loanEligibilityError($memberId, $loanTypeId, $amount, $tenor, $guarantorEmployeeId)
+    {
+        require_once('Settings.php');
+        $con = (new DB())->getConnection();
+
+        $stmt = $con->prepare("SELECT employee_id, treasurer_approval, chairman_approval FROM fudscoops_member WHERE member_id = :id AND is_deleted = 0");
+        $stmt->execute([':id' => $memberId]);
+        $member = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$member || $member['treasurer_approval'] != 1 || $member['chairman_approval'] != 1) {
+            return 'Only approved members can apply for a loan.';
+        }
+
+        $stmt = $con->prepare("SELECT loan_type_name, loan_type_max_tenor FROM fudscoops_loan_type WHERE loan_type_id = :id AND is_deleted = 0");
+        $stmt->execute([':id' => $loanTypeId]);
+        $type = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$type) {
+            return 'Unknown loan type.';
+        }
+        if (stripos($type['loan_type_name'], 'soft') !== false && !$this->isTargetSaving($memberId)) {
+            return 'Soft loans are only available to members on target savings.';
+        }
+        if ($amount === null || $amount <= 0) {
+            return 'Enter a valid loan amount.';
+        }
+        $maxTenor = (int) $type['loan_type_max_tenor'];
+        if (!ctype_digit((string) $tenor) || (int) $tenor < 1 || ($maxTenor > 0 && (int) $tenor > $maxTenor)) {
+            return 'Choose a repayment period of 1 to ' . $maxTenor . ' months for a ' . $type['loan_type_name'] . '.';
+        }
+
+        $live = self::liveLoans($con, 'member_id', $memberId);
+        foreach ($live as $loan) {
+            if ($loan['loan_type_id'] == $loanTypeId) {
+                return 'You already have a ' . $type['loan_type_name'] . ' that is pending or not fully repaid.';
+            }
+        }
+
+        $multiple = (float) Settings::get('loan_max_savings_multiple', 2);
+        if ($multiple > 0) {
+            $balance = self::memberSavingsBalance($con, $memberId);
+            $owing = array_sum(array_map(function ($l) { return $l['amount'] - $l['repaid']; }, $live));
+            $limit = $multiple * $balance - $owing;
+            if ($amount > $limit) {
+                return 'You can borrow at most ₦' . number_format(max(0, $limit)) . ' (' . rtrim(rtrim(number_format($multiple, 2), '0'), '.')
+                     . ' times your savings balance of ₦' . number_format($balance) . ', less loans you still owe).';
+            }
+        }
+
+        return $this->guarantorError($guarantorEmployeeId, $member['employee_id']);
+    }
+
+    public function guarantorError($guarantorEmployeeId, $applicantEmployeeId)
+    {
+        require_once('Settings.php');
+        $con = (new DB())->getConnection();
+        if (empty($guarantorEmployeeId)) {
+            return 'Guarantor not found. Check the staff number.';
+        }
+        if ((int) $guarantorEmployeeId === (int) $applicantEmployeeId) {
+            return 'You cannot be your own guarantor.';
+        }
+        $stmt = $con->prepare("SELECT e.sp_no, m.member_id, m.treasurer_approval, m.chairman_approval
+                               FROM employee e LEFT JOIN fudscoops_member m ON m.employee_id = e.employee_id AND m.is_deleted = 0
+                               WHERE e.employee_id = :id");
+        $stmt->execute([':id' => $guarantorEmployeeId]);
+        $g = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$g) {
+            return 'Guarantor not found. Check the staff number.';
+        }
+        if (strtoupper(substr($g['sp_no'], 0, 2)) === 'JP') {
+            return 'Junior staff (JP) cannot be guarantors.';
+        }
+        if (!$g['member_id'] || $g['treasurer_approval'] != 1 || $g['chairman_approval'] != 1) {
+            return 'The guarantor must be an approved member of the cooperative.';
+        }
+        $max = (int) Settings::get('guarantor_max_open_loans', 2);
+        if ($max > 0 && count(self::liveLoans($con, 'guarantor_employee_id', $guarantorEmployeeId)) >= $max) {
+            return 'This member is already guaranteeing ' . $max . ' loans and cannot guarantee another.';
+        }
+        return null;
+    }
+
+    private static function memberSavingsBalance($con, $memberId)
+    {
+        $stmt = $con->prepare("SELECT
+                (SELECT COALESCE(SUM(savings_amount), 0) FROM fudscoops_savings WHERE member_idmember = :m1)
+              - (SELECT COALESCE(SUM(approved_withrawal_amount), 0) FROM fudscoops_withrawals WHERE member_id = :m2 AND chairman_approval = 1)");
+        $stmt->execute([':m1' => $memberId, ':m2' => $memberId]);
+        return (float) $stmt->fetchColumn();
+    }
+
+    private static function liveLoans($con, $column, $value)
+    {
+        $stmt = $con->prepare("
+            SELECT l.loan_id, l.loan_type_id, l.loan_status,
+                   CASE WHEN l.loan_status IN ('Approve', 'Approved') THEN COALESCE(NULLIF(l.amount_recommended, 0), l.loan_amount)
+                        ELSE l.loan_amount END + 0 AS amount,
+                   (SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_loan_repayments r
+                     WHERE r.loan_id = l.loan_id AND r.status = 1 AND COALESCE(r.is_deleted, 0) = 0) AS repaid
+            FROM fudscoops_loan l
+            WHERE l.$column = :value AND l.guarantor_status <> -1 AND COALESCE(l.chairman_approval, 0) <> -1
+              AND COALESCE(l.loan_status, '') <> 'Disapprove'");
+        $stmt->execute([':value' => $value]);
+        return array_values(array_filter($stmt->fetchAll(PDO::FETCH_ASSOC), function ($l) {
+            return $l['loan_status'] === 'pending' || $l['amount'] - $l['repaid'] > 0;
+        }));
+    }
+
+    public static function loanStageLabel($loan)
+    {
+        if (isset($loan['guarantor_status']) && $loan['guarantor_status'] == -1) {
+            return 'Declined by guarantor';
+        }
+        if (isset($loan['loan_status']) && $loan['loan_status'] === 'Disapprove') {
+            return 'Declined by Treasurer';
+        }
+        if (isset($loan['loan_status']) && in_array($loan['loan_status'], ['Approve', 'Approved'], true)) {
+            return 'Approved';
+        }
+        if (isset($loan['chairman_approval']) && $loan['chairman_approval'] == -1) {
+            return 'Declined by Chairman';
+        }
+        if (isset($loan['guarantor_status']) && $loan['guarantor_status'] != 1) {
+            return 'Awaiting guarantor';
+        }
+        if (isset($loan['chairman_approval']) && $loan['chairman_approval'] != 1) {
+            return 'Awaiting Chairman';
+        }
+        return 'Awaiting Treasurer';
+    }
 }

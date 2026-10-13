@@ -94,6 +94,13 @@ class Report{
         return date('F Y', strtotime($from)) . ' to ' . date('F Y', strtotime($to));
     }
 
+    private static function shareEntryLabel($type)
+    {
+        $labels = ['purchase' => 'Purchase', 'conversion' => 'Converted from savings', 'transfer_in' => 'Received (transfer)',
+                   'transfer_out' => 'Given (transfer)', 'adjustment' => 'Upload adjustment'];
+        return isset($labels[$type]) ? $labels[$type] : $type;
+    }
+
     private static function fullName($row)
     {
         return preg_replace('/\s+/', ' ', trim(($row['fname'] ?? '') . ' ' . ($row['oname'] ?? '') . ' ' . ($row['lname'] ?? '')));
@@ -123,17 +130,19 @@ class Report{
         $completePeriod = $this->value("SELECT SUM(approved_amount) FROM fudscoops_complete_withrawal WHERE chairman_approval = 1
                                           AND COALESCE(complete_withrawal_is_deleted, 0) = 0 AND DATE(date_approved) BETWEEN :from AND :to", $p);
 
-        $sharesPeriod = $this->value("SELECT SUM(amount_paid) FROM fudscoops_shares WHERE share_status = 1 AND COALESCE(shares_is_deleted, 0) = 0 AND DATE(date) BETWEEN :from AND :to", $p);
+        // Shares bought = purchases and conversions from savings (transfers only move shares between members)
+        $sharesPeriod = $this->value("SELECT SUM(amount_paid) FROM fudscoops_shares WHERE share_status = 1 AND COALESCE(shares_is_deleted, 0) = 0
+                                        AND entry_type IN ('purchase', 'conversion') AND DATE(date) BETWEEN :from AND :to", $p);
         $sharesTotal = $this->value("SELECT SUM(amount_paid) FROM fudscoops_shares WHERE share_status = 1 AND COALESCE(shares_is_deleted, 0) = 0 AND DATE(date) <= :to", $toEnd);
 
         $loansPeriod = $this->rows("SELECT COUNT(*) n, SUM(COALESCE(amount_recommended, loan_amount)) amt FROM fudscoops_loan
-                                     WHERE loan_status = 'Approved' AND STR_TO_DATE(LEFT(loan_date, 10), '%Y-%m-%d') BETWEEN :from AND :to", $p)[0];
+                                     WHERE loan_status IN ('Approve', 'Approved') AND STR_TO_DATE(LEFT(loan_date, 10), '%Y-%m-%d') BETWEEN :from AND :to", $p)[0];
         $loansGranted = $this->value("SELECT SUM(COALESCE(amount_recommended, loan_amount)) FROM fudscoops_loan
-                                        WHERE loan_status = 'Approved' AND STR_TO_DATE(LEFT(loan_date, 10), '%Y-%m-%d') <= :to", $toEnd);
+                                        WHERE loan_status IN ('Approve', 'Approved') AND STR_TO_DATE(LEFT(loan_date, 10), '%Y-%m-%d') <= :to", $toEnd);
         $repaidPeriod = $this->value("SELECT SUM(amount_paid) FROM fudscoops_loan_repayments WHERE status = 1 AND COALESCE(is_deleted, 0) = 0
                                         AND loan_repayment_date BETWEEN :from AND :to", $p);
         $repaidTotal = $this->value("SELECT SUM(r.amount_paid) FROM fudscoops_loan_repayments r JOIN fudscoops_loan l ON l.loan_id = r.loan_id
-                                       WHERE r.status = 1 AND COALESCE(r.is_deleted, 0) = 0 AND l.loan_status = 'Approved' AND r.loan_repayment_date <= :to", $toEnd);
+                                       WHERE r.status = 1 AND COALESCE(r.is_deleted, 0) = 0 AND l.loan_status IN ('Approve', 'Approved') AND r.loan_repayment_date <= :to", $toEnd);
 
         $commodityApproved = $this->value("SELECT SUM(total_amount) FROM fudscoops_commodity_loan_applications WHERE status = 'approved' AND DATE(application_date) BETWEEN :from AND :to", $p);
         $commodityPending = $this->value("SELECT COUNT(*) FROM fudscoops_commodity_loan_applications WHERE status = 'pending'");
@@ -144,7 +153,7 @@ class Report{
                                  GROUP BY y, m ORDER BY y, m", $months);
         $loansByType = $this->rows("SELECT t.loan_type_name, COUNT(*) n, SUM(COALESCE(l.amount_recommended, l.loan_amount)) amt
                                      FROM fudscoops_loan l LEFT JOIN fudscoops_loan_type t ON t.loan_type_id = l.loan_type_id
-                                     WHERE l.loan_status = 'Approved' AND STR_TO_DATE(LEFT(l.loan_date, 10), '%Y-%m-%d') BETWEEN :from AND :to
+                                     WHERE l.loan_status IN ('Approve', 'Approved') AND STR_TO_DATE(LEFT(l.loan_date, 10), '%Y-%m-%d') BETWEEN :from AND :to
                                      GROUP BY t.loan_type_name ORDER BY t.loan_type_name", $p);
 
         return [
@@ -218,10 +227,11 @@ class Report{
         $complete = $this->rows("SELECT date_applied, date_approved, approved_amount, chairman_approval FROM fudscoops_complete_withrawal
                                   WHERE employee_id = :emp AND COALESCE(complete_withrawal_is_deleted, 0) = 0 AND DATE(date_applied) <= :to
                                   ORDER BY date_applied", [':emp' => $m['employee_id'], ':to' => $to]);
-        $shares = $this->rows("SELECT date, amount_paid, unit_price FROM fudscoops_shares
+        $shares = $this->rows("SELECT date, entry_type, amount_paid, unit_price FROM fudscoops_shares
                                 WHERE member_id = :id AND share_status = 1 AND COALESCE(shares_is_deleted, 0) = 0 AND DATE(date) <= :to
                                 ORDER BY date", $id);
         $loans = $this->loanRows($to, ' AND l.member_id = :member', [':member' => $m['member_id']]);
+        $unitPrice = (float) $this->value("SELECT price FROM fudscoops_share_unit ORDER BY shares_unit_id DESC LIMIT 1");
         $commodity = $this->rows("SELECT application_date, status, total_amount FROM fudscoops_commodity_loan_applications
                                    WHERE member_id = :id AND DATE(application_date) <= :to ORDER BY application_date", $id);
 
@@ -277,11 +287,12 @@ class Report{
                 ],
                 [
                     'heading' => 'Shares',
-                    'columns' => [['Date', 'date'], ['Amount', 'money'], ['Units', 'int']],
-                    'rows' => array_map(function ($s) {
-                        return [$s['date'], $s['amount_paid'], $s['unit_price'] > 0 ? floor($s['amount_paid'] / $s['unit_price']) : null];
+                    'columns' => [['Date', 'date'], ['Type', 'text'], ['Amount', 'money'], ['Units at current price', 'int']],
+                    // fudscoops_shares is a ledger; unit_price holds the entry amount, not a price
+                    'rows' => array_map(function ($s) use ($unitPrice) {
+                        return [$s['date'], self::shareEntryLabel($s['entry_type']), $s['amount_paid'], $unitPrice > 0 ? (int) ($s['amount_paid'] / $unitPrice) : null];
                     }, $shares),
-                    'totals' => ['Total', array_sum(array_column($shares, 'amount_paid')), null],
+                    'totals' => ['Total', null, array_sum(array_column($shares, 'amount_paid')), null],
                 ],
                 $this->loanTable($loans, 'Loans'),
                 [
@@ -347,7 +358,7 @@ class Report{
     private function reportWithdrawals($from, $to)
     {
         $p = [':from' => $from, ':to' => $to];
-        $withdrawals = $this->rows("SELECT w.approved_date, e.sp_no, e.fname, e.oname, e.lname, e.dept, w.approved_withrawal_amount, b.name bank, w.account_name, w.acount_number
+        $withdrawals = $this->rows("SELECT w.approved_date, w.withdrawal_type_id, e.sp_no, e.fname, e.oname, e.lname, e.dept, w.approved_withrawal_amount, b.name bank, w.account_name, w.acount_number
                                      FROM fudscoops_withrawals w
                                      JOIN fudscoops_member m ON m.member_id = w.member_id
                                      JOIN employee e ON e.employee_id = m.employee_id
@@ -388,9 +399,14 @@ class Report{
             'tables' => [
                 [
                     'heading' => 'Savings withdrawals',
-                    'columns' => $columns,
-                    'rows' => array_map($mapRow('approved_withrawal_amount', 'approved_date'), $withdrawals),
-                    'totals' => ['Total', null, null, null, null, null, $total],
+                    'columns' => array_merge(array_slice($columns, 0, 6), [['Type', 'text']], array_slice($columns, 6)),
+                    // withdrawal_type_id 2 = savings converted to shares (MemberG2::convertShare)
+                    'rows' => array_map(function ($r) use ($mapRow) {
+                        $row = $mapRow('approved_withrawal_amount', 'approved_date')($r);
+                        array_splice($row, 6, 0, [$r['withdrawal_type_id'] == 2 ? 'Converted to shares' : 'Cash']);
+                        return $row;
+                    }, $withdrawals),
+                    'totals' => ['Total', null, null, null, null, null, null, $total],
                 ],
                 [
                     'heading' => 'Complete withdrawals',
@@ -414,7 +430,7 @@ class Report{
             SELECT l.loan_id, STR_TO_DATE(LEFT(l.loan_date, 10), '%Y-%m-%d') loan_date, t.loan_type_name, l.loan_tenor,
                    COALESCE(l.amount_recommended, l.loan_amount) amount,
                    e.sp_no, e.fname, e.oname, e.lname, e.dept,
-                   (SELECT r.loan_repayment_amount FROM fudscoops_loan_repayments r
+                   (SELECT REPLACE(r.loan_repayment_amount, ',', '') FROM fudscoops_loan_repayments r
                      WHERE r.loan_id = l.loan_id AND COALESCE(r.is_deleted, 0) = 0
                      ORDER BY r.loan_repayment_id DESC LIMIT 1) monthly,
                    (SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_loan_repayments r
@@ -424,7 +440,7 @@ class Report{
             JOIN fudscoops_member m ON m.member_id = l.member_id
             JOIN employee e ON e.employee_id = m.employee_id
             LEFT JOIN fudscoops_loan_type t ON t.loan_type_id = l.loan_type_id
-            WHERE l.loan_status = 'Approved' AND STR_TO_DATE(LEFT(l.loan_date, 10), '%Y-%m-%d') <= :to2 $where
+            WHERE l.loan_status IN ('Approve', 'Approved') AND STR_TO_DATE(LEFT(l.loan_date, 10), '%Y-%m-%d') <= :to2 $where
             ORDER BY loan_date, e.fname", array_merge([':to' => $to, ':to2' => $to], $params)));
     }
 
@@ -510,11 +526,12 @@ class Report{
     private function reportShares($from, $to)
     {
         $unitPrice = (float) $this->value("SELECT price FROM fudscoops_share_unit ORDER BY shares_unit_id DESC LIMIT 1");
-        $purchases = $this->rows("SELECT s.date, e.sp_no, e.fname, e.oname, e.lname, e.dept, s.amount_paid, s.unit_price
+        $purchases = $this->rows("SELECT s.date, s.entry_type, e.sp_no, e.fname, e.oname, e.lname, e.dept, s.amount_paid, s.unit_price
                                    FROM fudscoops_shares s
                                    JOIN fudscoops_member m ON m.member_id = s.member_id
                                    JOIN employee e ON e.employee_id = m.employee_id
-                                   WHERE s.share_status = 1 AND COALESCE(s.shares_is_deleted, 0) = 0 AND DATE(s.date) BETWEEN :from AND :to
+                                   WHERE s.share_status = 1 AND COALESCE(s.shares_is_deleted, 0) = 0 AND s.entry_type IN ('purchase', 'conversion')
+                                     AND DATE(s.date) BETWEEN :from AND :to
                                    ORDER BY s.date, e.fname", [':from' => $from, ':to' => $to]);
         $holdings = $this->rows("SELECT e.sp_no, e.fname, e.oname, e.lname, e.dept, SUM(s.amount_paid) total
                                   FROM fudscoops_shares s
@@ -540,12 +557,13 @@ class Report{
             ],
             'tables' => [
                 [
-                    'heading' => 'Share purchases in period',
-                    'columns' => [['Date', 'date'], ['Staff No', 'text'], ['Name', 'text'], ['Department', 'text'], ['Amount', 'money'], ['Units', 'int']],
-                    'rows' => array_map(function ($r) use ($units) {
-                        return [$r['date'], $r['sp_no'], self::fullName($r), $r['dept'], $r['amount_paid'], $units($r['amount_paid'], (float) $r['unit_price'])];
+                    'heading' => 'Shares bought in period (purchases and conversions from savings)',
+                    'columns' => [['Date', 'date'], ['Staff No', 'text'], ['Name', 'text'], ['Department', 'text'], ['Type', 'text'], ['Amount', 'money'], ['Units', 'int']],
+                    // fudscoops_shares.unit_price holds the purchase amount, not a price, so use the current unit price
+                    'rows' => array_map(function ($r) use ($units, $unitPrice) {
+                        return [$r['date'], $r['sp_no'], self::fullName($r), $r['dept'], self::shareEntryLabel($r['entry_type']), $r['amount_paid'], $units($r['amount_paid'], $unitPrice)];
                     }, $purchases),
-                    'totals' => ['Total', null, null, null, array_sum(array_column($purchases, 'amount_paid')), null],
+                    'totals' => ['Total', null, null, null, null, array_sum(array_column($purchases, 'amount_paid')), null],
                 ],
                 [
                     'heading' => 'Share holdings',

@@ -117,7 +117,12 @@ while (($data = fgetcsv($handle, 1000, ',')) !== false) {
     $loanDate = date('Y-m-d');
     $loanStatus = "Paid";
 
-    $stmtCheck = $con->prepare("SELECT loan_id FROM fudscoops_loan WHERE member_id = :member_id AND loan_type_id = :type");
+    // Deductions go to the member's open (approved, not fully repaid) loan of this type
+    $stmtCheck = $con->prepare("SELECT l.loan_id FROM fudscoops_loan l
+         WHERE l.member_id = :member_id AND l.loan_type_id = :type AND l.loan_status IN ('Approve', 'Approved')
+           AND COALESCE(NULLIF(l.amount_recommended, 0), l.loan_amount) > (SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_loan_repayments r
+                 WHERE r.loan_id = l.loan_id AND r.status = 1 AND COALESCE(r.is_deleted, 0) = 0)
+         ORDER BY l.loan_id DESC LIMIT 1");
     $stmtCheck->execute([':member_id' => $memberId, ':type' => $loanTypeId]);
 
     if ($stmtCheck->rowCount() > 0) {

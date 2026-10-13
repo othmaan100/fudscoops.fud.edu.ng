@@ -6,6 +6,10 @@ require_once '../config/classes/User.php';
         $db = new DB();
         $endorse = new SavingsG1();
         $user = new User();
+        if (!isset($_SESSION['access_level']) || !in_array((int) $_SESSION['access_level'], [2, 3, 4], true)) {
+            echo json_encode(array('status' => 'error', 'message' => 'Please log in again.'));
+            exit;
+        }
         $amount = $db->cleanData($_POST['amount']);
         $percentage = 0.1*$amount;
         $amount = $amount + $percnetage;

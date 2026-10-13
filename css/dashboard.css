@@ -1,0 +1,353 @@
+/* FUDSCOOPS role dashboards (R/, UR/, Chairman/, Treasurer/, Secretary/ index.php).
+   Loaded after css/style.css by View::header() / View::subHeader(). Matches css/sidebar.css. */
+
+.fud-dash {
+  --fud-accent: #4d83ff;
+  --fud-text: #1f2a44;
+  --fud-muted: #6b7487;
+  --fud-border: #e6ebf4;
+}
+
+/* ---------- Welcome banner ---------- */
+.fud-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  padding: 1.6rem 1.75rem;
+  margin-bottom: 1.5rem;
+  color: #ffffff;
+  background: linear-gradient(135deg, #4d83ff 0%, #6a5af9 60%, #8b5cf6 100%);
+  box-shadow: 0 10px 24px rgba(77, 131, 255, 0.25);
+}
+
+.fud-hero::after {
+  /* soft decorative circle */
+  content: "";
+  position: absolute;
+  right: -60px;
+  top: -60px;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.fud-hero-date {
+  font-size: 0.8rem;
+  opacity: 0.85;
+  margin-bottom: 0.35rem;
+}
+
+.fud-hero h2 {
+  color: #ffffff;
+  font-size: 1.55rem;
+  font-weight: 600;
+  margin: 0 0 0.35rem;
+}
+
+.fud-hero p {
+  margin: 0;
+  opacity: 0.9;
+  font-size: 0.92rem;
+}
+
+.fud-hero-chip {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 0.75rem;
+  font-weight: 500;
+  vertical-align: middle;
+}
+
+.fud-hero-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.1rem;
+}
+
+.fud-hero-actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.2s ease;
+}
+
+.fud-hero-actions a:hover {
+  background: rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  text-decoration: none;
+}
+
+/* ---------- Stat cards ---------- */
+.fud-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.fud-stat {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 1.1rem 1.15rem;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid var(--fud-border);
+  box-shadow: 0 2px 10px rgba(20, 32, 60, 0.04);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fud-stat:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(20, 32, 60, 0.08);
+}
+
+.fud-stat-icon {
+  flex: 0 0 46px;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.35rem;
+}
+
+.fud-stat-label {
+  font-size: 0.76rem;
+  color: var(--fud-muted);
+  line-height: 1.3;
+}
+
+.fud-stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--fud-text);
+  line-height: 1.25;
+  margin-top: 0.15rem;
+  word-break: break-word;
+}
+
+.fud-stat-sub {
+  font-size: 0.72rem;
+  color: var(--fud-muted);
+  margin-top: 0.1rem;
+}
+
+/* icon colours */
+.fud-blue   { background: rgba(77, 131, 255, 0.12);  color: #3b6fe8; }
+.fud-green  { background: rgba(34, 168, 106, 0.12);  color: #1b8f59; }
+.fud-amber  { background: rgba(245, 159, 0, 0.14);   color: #c27c00; }
+.fud-purple { background: rgba(124, 92, 246, 0.12);  color: #6a4ae0; }
+.fud-teal   { background: rgba(20, 170, 180, 0.12);  color: #0f8a93; }
+.fud-rose   { background: rgba(232, 72, 104, 0.12);  color: #c9365a; }
+
+/* ---------- Section cards ---------- */
+.fud-section {
+  background: #ffffff;
+  border: 1px solid var(--fud-border);
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(20, 32, 60, 0.04);
+  margin-bottom: 1.5rem;
+}
+
+.fud-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--fud-border);
+}
+
+.fud-section-head h5 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--fud-text);
+}
+
+.fud-section-head a {
+  font-size: 0.8rem;
+}
+
+.fud-section-body {
+  padding: 1rem 1.25rem;
+}
+
+/* ---------- Work queue ("needs your attention") ---------- */
+.fud-tasks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.fud-task {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid var(--fud-border);
+  color: var(--fud-text);
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.fud-task:hover {
+  border-color: var(--fud-accent);
+  background: rgba(77, 131, 255, 0.04);
+  color: var(--fud-text);
+  text-decoration: none;
+}
+
+.fud-task .mdi {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  background: #f1f4fa;
+  color: var(--fud-muted);
+}
+
+.fud-task-label {
+  flex: 1;
+  font-size: 0.85rem;
+  line-height: 1.3;
+}
+
+.fud-task-count {
+  min-width: 32px;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  background: #eef1f6;
+  color: var(--fud-muted);
+}
+
+.fud-task.has-items .mdi { background: rgba(77, 131, 255, 0.12); color: #3b6fe8; }
+.fud-task.has-items .fud-task-count { background: #4d83ff; color: #ffffff; }
+
+.fud-all-clear {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #1b8f59;
+  font-size: 0.88rem;
+  margin-bottom: 0.75rem;
+}
+
+/* ---------- Notices ---------- */
+.fud-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  margin-bottom: 0.6rem;
+  font-size: 0.87rem;
+  background: #fff8e8;
+  border: 1px solid #f6e2b3;
+  color: #7a5200;
+}
+
+.fud-notice .mdi { font-size: 1.2rem; }
+.fud-notice a { margin-left: auto; font-weight: 600; white-space: nowrap; }
+.fud-notice.info { background: #eef4ff; border-color: #d3e1ff; color: #2a4fa8; }
+.fud-notice.success { background: #e9f8f0; border-color: #c4ead6; color: #17734a; }
+
+/* ---------- Tables inside sections ---------- */
+.fud-table { width: 100%; margin: 0; font-size: 0.85rem; }
+.fud-table th { color: var(--fud-muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; border-top: 0; }
+.fud-table td, .fud-table th { padding: 0.6rem 0.5rem; vertical-align: middle; }
+.fud-table .num { text-align: right; }
+
+.fud-pill {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+.fud-pill.ok { background: #e3f6ec; color: #17734a; }
+.fud-pill.wait { background: #fff2d6; color: #8a5d00; }
+.fud-pill.no { background: #fde6eb; color: #b0294b; }
+
+.fud-empty { color: var(--fud-muted); font-size: 0.86rem; margin: 0; }
+
+/* ---------- Application progress (applicants) ---------- */
+.fud-steps {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.fud-step {
+  flex: 1;
+  text-align: center;
+  position: relative;
+  font-size: 0.8rem;
+  color: var(--fud-muted);
+}
+
+.fud-step::before {
+  /* connector line */
+  content: "";
+  position: absolute;
+  top: 18px;
+  left: -50%;
+  width: 100%;
+  height: 3px;
+  background: #e6ebf4;
+  z-index: 0;
+}
+
+.fud-step:first-child::before { display: none; }
+
+.fud-step-dot {
+  position: relative;
+  z-index: 1;
+  width: 38px;
+  height: 38px;
+  margin: 0 auto 0.4rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  background: #eef1f6;
+  color: var(--fud-muted);
+  border: 3px solid #ffffff;
+  box-shadow: 0 0 0 1px #e6ebf4;
+}
+
+.fud-step.done .fud-step-dot { background: #22a86a; color: #ffffff; }
+.fud-step.done::before, .fud-step.current::before { background: #22a86a; }
+.fud-step.current .fud-step-dot { background: #4d83ff; color: #ffffff; box-shadow: 0 0 0 4px rgba(77, 131, 255, 0.2); }
+.fud-step.done, .fud-step.current { color: var(--fud-text); font-weight: 600; }
+
+@media (max-width: 575px) {
+  .fud-hero { padding: 1.25rem; }
+  .fud-hero h2 { font-size: 1.25rem; }
+  .fud-step { font-size: 0.7rem; }
+}

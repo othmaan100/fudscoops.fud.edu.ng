@@ -1,3 +1,24 @@
+// ===================== Shared helpers =====================
+// Remember which submit button was clicked. Safari (and Firefox on Mac) do not focus a clicked button,
+// so checking fudClicked('id') recorded the wrong decision there.
+var fudLastSubmitter = '';
+$(document).on('click', 'button[type=submit], input[type=submit]', function () {
+    fudLastSubmitter = this.id || '';
+});
+function fudClicked(id) {
+    return fudLastSubmitter === id || $('#' + id).is(':focus');
+}
+
+// Servers reply 1 on success, otherwise (from 2026-10-08) a message explaining the refusal.
+// Show that message, or the fallback text for old numeric/empty replies.
+function fudServerMessage(msg, fallback) {
+    var text = $.trim(String(msg === undefined || msg === null ? '' : msg));
+    return (text === '' || /^-?\d+$/.test(text) || text.charAt(0) === '<') ? fallback : text;
+}
+function fudShowError(msg, fallback) {
+    $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary"></div>');
+    $('.msg .alert').text(fudServerMessage(msg, fallback));
+}
 function updateLoanStatus(loanId, status) {
     // Make an AJAX call to update the loan status
     fetch(`../../ajax/guarantor_decision.php?loan_id=${loanId}&status=${status}`)
@@ -667,11 +688,12 @@ $(document).on('submit', '#endorseForm', function(e){
        //===================== Endorsement of Loan ==================================
 $(document).on('submit', '.undertaking-form', function(e){
     e.preventDefault(); // Prevent the form from submitting normally
-        // Confirm the action with the user
-        if (!confirm('Are you sure you want to endorse this loan?')) {
+        // Guarantor accepts (Submit Undertaking) or declines
+        var decision = fudClicked('guarantorDecline') ? 'decline' : 'accept';
+        if (!confirm(decision === 'decline' ? 'Are you sure you want to decline to guarantee this loan?' : 'Are you sure you want to endorse this loan?')) {
             return false; // Exit if not confirmed
         }
-        var data = $(this).serialize(); // Serialize the form data
+        var data = $(this).serialize() + '&decision=' + decision; // Serialize the form data
 
     // Display a loading message
     $('.msg').html('<div class="alert offset-md-4 col-4 alert-primary"><i> Saving please wait...</i></div>');
@@ -685,12 +707,12 @@ $(document).on('submit', '.undertaking-form', function(e){
             // Handle the response from the server
             if (msg == 1) {
                 // Success message
-                $('.msg').html('<div class="alert offset-md-2 col-6 msg alert-success text-primary">Undertaking successfully Saved.</div>');
+                $('.msg').html('<div class="alert offset-md-2 col-6 msg alert-success text-primary">Your decision as guarantor has been saved.</div>');
                 // Redirect after a short delay
                 setTimeout(function(){ window.location = 'index.php'; }, 100);
             } else {
                 // Error message
-                $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary">Error! Cannot Saved undertaking Contact system admin.</div>');
+                fudShowError(msg, 'Error! Cannot save the undertaking. Contact system admin.');
             }
         }
     });
@@ -760,15 +782,15 @@ $(document).on('submit', '.sav-withdrawal-decision-form', function(e){
         var type = $('#type').val();
         
         if (type == 'decision') {
-            if ($('#proceed').is(':focus')) {
+            if (fudClicked('proceed')) {
                 action = 'Proceed';
-            } else if ($('#Decline').is(':focus')) {
+            } else if (fudClicked('Decline')) {
                 action = 'Decline';
             }
         } else {
-            if ($('#approve').is(':focus')) {
+            if (fudClicked('approve')) {
                 action = 'Approve';
-            } else if ($('#deapprove').is(':focus')) {
+            } else if (fudClicked('deapprove')) {
                 action = 'Disapprove';
             }
         }
@@ -824,15 +846,15 @@ $(document).on('submit', '.com-withdrawal-decision-form', function(e){
         var type = $('#type').val();
         
         if (type == 'decision') {
-            if ($('#proceed').is(':focus')) {
+            if (fudClicked('proceed')) {
                 action = 'Proceed';
-            } else if ($('#Decline').is(':focus')) {
+            } else if (fudClicked('Decline')) {
                 action = 'Decline';
             }
         } else {
-            if ($('#approve').is(':focus')) {
+            if (fudClicked('approve')) {
                 action = 'Approve';
-            } else if ($('#deapprove').is(':focus')) {
+            } else if (fudClicked('deapprove')) {
                 action = 'Disapprove';
             }
         }
@@ -885,16 +907,16 @@ $(document).on('submit', '.loan-decision-form', function(e){
         var action = '';
         var type = $('#type').val();
         if(type== 'decision' ){
-            if ($('#proceed').is(':focus')) {
+            if (fudClicked('proceed')) {
                action = 'Proceed';
-            } else if ($('#Decline').is(':focus')) {
+            } else if (fudClicked('Decline')) {
                 action = 'Decline';
             }
             
         }else{
-            if ($('#Approved').is(':focus')) {
+            if (fudClicked('Approved')) {
                  action = 'Approve';
-            } else if ($('#Deapproved').is(':focus')) {
+            } else if (fudClicked('Deapproved')) {
                 action = 'Disapprove';
             }
         }
@@ -925,7 +947,7 @@ $(document).on('submit', '.loan-decision-form', function(e){
                 setTimeout(function(){ window.location = 'loans.php'; }, 2000);
             } else {
                 // Error message
-                $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary">Error! Cannot save Loan Decision. Contact system admin.</div>');
+                fudShowError(msg, 'Error! Cannot save Loan Decision. Contact system admin.');
             }
         }
     });
@@ -941,16 +963,16 @@ $(document).on('submit', '.share-decision-form', function(e){
         var action = '';
         var type = $('#type').val();
         if(type== 'decision' ){
-            if ($('#proceed').is(':focus')) {
+            if (fudClicked('proceed')) {
                action = 'Proceed';
-            } else if ($('#Decline').is(':focus')) {
+            } else if (fudClicked('Decline')) {
                 action = 'Decline';
             }
             
         }else{
-            if ($('#Approved').is(':focus')) {
+            if (fudClicked('Approved')) {
                  action = 'Approve';
-            } else if ($('#Deapproved').is(':focus')) {
+            } else if (fudClicked('Deapproved')) {
                 action = 'Disapprove';
             }
         }
@@ -981,7 +1003,7 @@ $(document).on('submit', '.share-decision-form', function(e){
                 setTimeout(function(){ window.location = 'manage_share_purchase.php'; }, 2000);
             } else {
                 // Error message
-                $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary">Error! Cannot save Share Approval. Contact system admin.</div>');
+                fudShowError(msg, 'Error! Cannot save Share Approval. Contact system admin.');
             }
         }
     });
@@ -997,16 +1019,16 @@ $(document).on('submit', '.share-transfer-decision-form', function(e){
         var action = '';
         var type = $('#type').val();
         if(type== 'decision' ){
-            if ($('#proceed').is(':focus')) {
+            if (fudClicked('proceed')) {
                action = 'Proceed';
-            } else if ($('#Decline').is(':focus')) {
+            } else if (fudClicked('Decline')) {
                 action = 'Decline';
             }
             
         }else{
-            if ($('#Approved').is(':focus')) {
+            if (fudClicked('Approved')) {
                  action = 'Approve';
-            } else if ($('#Deapproved').is(':focus')) {
+            } else if (fudClicked('Deapproved')) {
                 action = 'Disapprove';
             }
         }
@@ -1037,7 +1059,7 @@ $(document).on('submit', '.share-transfer-decision-form', function(e){
                 setTimeout(function(){ window.location = 'manage_share_transfer.php'; }, 2000);
             } else {
                 // Error message
-                $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary">Error! Cannot save Share Approval. Contact system admin.</div>');
+                fudShowError(msg, 'Error! Cannot save Share Approval. Contact system admin.');
             }
         }
     });
@@ -1051,8 +1073,8 @@ $(document).on('submit', '.share-conversion-decision-form', function(e) {
 
     // Determine which button was clicked
     var action = '';
-    if ($('#proceed').is(':focus')) action = 'Approve';
-    else if ($('#decline').is(':focus')) action = 'Decline';
+    if (fudClicked('proceed')) action = 'Approve';
+    else if (fudClicked('decline')) action = 'Decline';
 
     if (!action) {
         alert('No action detected!');
@@ -1080,7 +1102,7 @@ $(document).on('submit', '.share-conversion-decision-form', function(e) {
                 $('.msg').html('<div class="alert offset-md-2 col-6 alert-warning text-primary">Share Conversion Declined.</div>');
                 setTimeout(function(){ window.location = 'manage_share_conversion.php'; }, 2000);
             } else {
-                $('.msg').html('<div class="alert offset-md-2 col-6 alert-danger text-primary">Error! Cannot save Share Approval. Contact system admin.</div>');
+                fudShowError(msg, 'Error! Cannot save Share Approval. Contact system admin.');
             }
         },
         error: function() {
@@ -1191,7 +1213,7 @@ $(document).on('submit', '#commodity_request', function(e) {
                 }, 2000);
             } else {
                 // Error message
-                $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary">Error! Cannot save Loan Decision. Contact system admin.</div>');
+                fudShowError(msg, 'Error! Cannot save Loan Decision. Contact system admin.');
             }
         },
         error: function() {
@@ -1496,7 +1518,7 @@ $(document).on('submit', '#commodity_request', function(e) {
                      setTimeout((function(){ window.location = 'index.php'  }), 100);              
 
                 }else{
-                    $('.msg').html('<div class="alert msg offset-md-2 col-6  alert-danger text-primary"> Error! Contact system admin</div>');
+                    fudShowError(msg, 'Error! Cannot submit the loan application. Contact system admin.');
                 }
 
             }
@@ -1707,7 +1729,7 @@ $(document).on('submit', '#commodity_request', function(e) {
                 }, 1000);
 
             } else {
-                $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary"> Error! Cannot Register a Member. Contact system admin</div>');
+                fudShowError(msg, 'Error! Cannot submit the share purchase. Contact system admin.');
             }
         }
     });
@@ -1963,7 +1985,7 @@ $(document).on('submit', '#commodity_request', function(e) {
                         alert('Share was successfully Transfered.')
                     }
                     else{
-                        alert('Cannot Transfer the share, contact system admin.')
+                        alert(fudServerMessage(msg, 'Cannot Transfer the share, contact system admin.'))
                     }
                 }
             });//end ajax
@@ -2004,7 +2026,7 @@ $(document).on('submit', '#commodity_request', function(e) {
                         alert('Share was successfully Transfered and Waiting for Approval.')
                     }
                     else{
-                        alert('Cannot Transfer the share, contact system admin.')
+                        alert(fudServerMessage(msg, 'Cannot Transfer the share, contact system admin.'))
                     }
                 }
             });//end ajax
@@ -2075,7 +2097,7 @@ $(document).on('submit', '#commodity_request', function(e) {
                         alert('Share was successfully converted and waiting for Approval.')
                     }
                     else{
-                        alert('Cannot Convert the savings to share, contact system admin.')
+                        alert(fudServerMessage(msg, 'Cannot Convert the savings to share, contact system admin.'))
                     }
                 }
             });//end ajax

@@ -1,40 +1,33 @@
 <?php
-
+// Loan decisions: Chairman approves/declines -> Treasurer fixes the amount and approves/declines.
+// The Secretary only views loans (MemberG3::toBeProceed refuses).
 require_once '../config/classes/DB.php';
 require_once '../config/classes/SavingsG1.php';
 require_once '../config/classes/MemberG3.php';
         $db = new DB();
         $endorse = new MemberG3();
+        $level = isset($_SESSION['access_level']) ? (int) $_SESSION['access_level'] : -1;
+        $field = function ($name) use ($db) { return $db->cleanData(isset($_POST[$name]) ? $_POST[$name] : ''); };
+
         if(isset($_POST['type']) && !empty($_POST['type'])){
-             $action = $db->cleanData($_POST['action']);
-             $loan_id = $db->cleanData($_POST['loan_id']);
-             $comment = $db->cleanData($_POST['comment']);
-             $decision = $db->cleanData($_POST['decision']);
-             $member_id = $db->cleanData($_POST['member_id']);
-                    //chairman decision
-                 if($decision =='chairman'){
-                     echo $endorse->chairmanDecision($loan_id,$member_id,$action,$comment);
-                 }else if($decison=='secretary'){
-                     // this is for secreatry
-                 echo $endorse->toBeProceed($loan_id,$member_id,$action,$comment);
-                 }
+             if($field('decision') == 'chairman' && $level === 4){
+                 echo $endorse->chairmanDecision($field('loan_id'), $field('member_id'), $field('action'), $field('comment'));
+             }else{
+                 echo 'Only the Chairman can take this decision. The Secretary can view loans but not decide on them.';
+             }
+        }else if($level === 3){
+            // Treasurer decision
+            $tenor = (int) $field('laon_tenor');
+            $amount = (float) preg_replace('/[^0-9.]/', '', $field('amount_recommended'));
+
+            // Monthly repayment: unchanged formula (6% annual rate), stored as a plain number (no thousands separator)
+            $repayment = 0;
+            if ($tenor > 0 && $amount > 0) {
+                $monthly_rate = 0.06 / 12;
+                $repayment = round($amount * $monthly_rate * pow(1 + $monthly_rate, $tenor) / (pow(1 + $monthly_rate, $tenor) - 1), 2);
+            }
+            echo $endorse->processLoan($field('loan_id'), $field('member_id'), $repayment, $field('action'), $amount);
         }else{
-            //treasurer decision
-            $loan_id = $db->cleanData($_POST['loan_id']);
-            $member_id = $db->cleanData($_POST['member_id']);
-            $tenor = $db->cleanData($_POST['laon_tenor']);
-            $amount = $db->cleanData($_POST['amount_recommended']);
-            $action = $db->cleanData($_POST['action']);
-            
-            //calculating repayment
-            // to determine the monthly rate
-            $monthly_rate = 0.06 / 12; // Assuming an annual interest rate of 6%
-             $repayment = '';
-             $repayment = $amount * $monthly_rate * pow(1 + $monthly_rate, $tenor) / (pow(1 + $monthly_rate, $tenor) - 1);
-             // Format the repayment value to two decimal places
-                $repayment = number_format($repayment, 2);
-             echo $endorse->processLoan($loan_id,$member_id,$repayment,$action,$amount);
-        
+            echo 'You are not allowed to take this decision. Please log in again.';
         }
-                
 ?>

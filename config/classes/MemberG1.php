@@ -855,7 +855,8 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
         $member = new MemberG1();
         $member_id =$member->getMemberId($employeeid);
         
-        $q = "SELECT SUM(loan_amount)  as totalloan FROM fudscoops_loan WHERE member_id = :member_id";
+        // Approved loans only (a member can hold several loans; pending and declined ones are not borrowed money)
+        $q = "SELECT SUM(COALESCE(NULLIF(amount_recommended, 0), loan_amount)) as totalloan FROM fudscoops_loan WHERE member_id = :member_id AND loan_status IN ('Approve', 'Approved')";
         $stm = $con->prepare($q);
         $stm->bindParam(':member_id', $member_id, PDO::PARAM_STR);
         $stm->execute();

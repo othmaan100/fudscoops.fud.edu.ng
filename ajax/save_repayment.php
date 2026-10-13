@@ -8,6 +8,10 @@ require_once '../config/classes/MemberG3.php';
         $endorse = new SavingsG1();
         $user = new User();
         $members = new MemberG3();
+        if (!isset($_SESSION['access_level']) || (int) $_SESSION['access_level'] !== 3) {
+            echo json_encode(['status' => 'error', 'message' => 'Only the Treasurer can record loan repayments.']);
+            exit;
+        }
 
        $loan_id = $db->cleanData($_POST['loan_id']);
         $member_id = $db->cleanData($_POST['member_id']);

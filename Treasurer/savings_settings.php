@@ -11,7 +11,31 @@
         exit();
     }
 
+    // Loan and share eligibility rules (see MemberG3::loanEligibilityError and MemberG2 share ledger)
+    $rules = [
+        'loan_max_savings_multiple'        => ['Loan limit (times savings balance)', 'A member\'s open loans plus a new loan may not exceed this many times their savings balance. 0 = no limit.', 2, 'decimal'],
+        'guarantor_max_open_loans'         => ['Loans one member may guarantee at a time', 'Open (pending or not fully repaid) loans. 0 = no limit.', 2, 'int'],
+        'share_min_balance_after_transfer' => ['Minimum shares kept after a transfer (₦)', 'A member must keep at least this amount of shares after transferring shares to another member.', 20000, 'int'],
+    ];
+
     // Post/Redirect/Get so a page refresh does not re-submit
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['rules_form'])) {
+        $saved = true;
+        foreach ($rules as $key => $rule) {
+            $raw = isset($_POST[$key]) ? trim($_POST[$key]) : '';
+            if ($raw === '' || !is_numeric($raw) || $raw < 0) {
+                $_SESSION['settings_message'] = ['danger', 'Enter a valid number for "' . $rule[0] . '".'];
+                header('location: savings_settings.php');
+                exit();
+            }
+            $value = $rule[3] === 'int' ? (string) (int) $raw : (string) round((float) $raw, 2);
+            $saved = Settings::set($key, $value, $_SESSION['username']) && $saved;
+        }
+        $_SESSION['settings_message'] = $saved ? ['success', 'Loan and share rules saved.'] : ['danger', 'Could not save the settings. Contact system admin.'];
+        header('location: savings_settings.php');
+        exit();
+    }
+
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['min_monthly_savings'])) {
         $amount = SavingsG1::parseAmount($_POST['min_monthly_savings']);
         if ($amount === null || $amount < 1) {
@@ -83,6 +107,29 @@
                     </p>
                   <?php } ?>
                   <p class="mt-3 mb-0"><a href="member_list.php">&larr; Back to Membership Applicants</a></p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col-md-8 grid-margin stretch-card">
+              <div class="card">
+                <div class="card-body">
+                  <h5 class="card-title">Loan and Share Rules</h5>
+                  <form method="POST" onsubmit="return confirm('Save the loan and share rules?');">
+                    <input type="hidden" name="rules_form" value="1">
+                    <?php foreach ($rules as $key => $rule) { ?>
+                      <div class="form-group">
+                        <label for="<?php echo $key; ?>" class="mb-1"><strong><?php echo htmlspecialchars($rule[0]); ?></strong></label>
+                        <input type="number" class="form-control col-md-4" id="<?php echo $key; ?>" name="<?php echo $key; ?>" min="0"
+                               step="<?php echo $rule[3] === 'int' ? '1' : '0.1'; ?>" required
+                               value="<?php echo htmlspecialchars(Settings::get($key, $rule[2])); ?>">
+                        <small class="form-text text-muted"><?php echo htmlspecialchars($rule[1]); ?></small>
+                      </div>
+                    <?php } ?>
+                    <button type="submit" class="btn btn-primary">Save Rules</button>
+                  </form>
                 </div>
               </div>
             </div>

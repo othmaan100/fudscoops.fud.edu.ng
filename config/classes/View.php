@@ -26,6 +26,7 @@ class View{
           <link rel="stylesheet" href="css/style.css">
           <link rel="stylesheet" href="css/putme.css">
           <link rel="stylesheet" href="css/sidebar.css">
+          <link rel="stylesheet" href="css/dashboard.css">
           <script src="vendors/base/vendor.bundle.base.js"></script>
 
           <!-- endinject -->
@@ -60,6 +61,7 @@ class View{
           <link rel="stylesheet" href="'.$url.'css/style.css">
           <link rel="stylesheet" href="'.$url.'css/putme.css">
           <link rel="stylesheet" href="'.$url.'css/sidebar.css">
+          <link rel="stylesheet" href="'.$url.'css/dashboard.css">
           <script src="'.$url.'vendors/base/vendor.bundle.base.js"></script>
 
           <!-- endinject -->

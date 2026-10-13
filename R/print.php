@@ -11,11 +11,15 @@
          
 
          if ($type == 'acknowledgeshare') {
-           $spNo = $_GET['spNo'] ?? '';
+           // Slip for the logged-in member's latest share purchase
+           $spNo = isset($_SESSION['username']) ? $_SESSION['username'] : '';
            $staff_info =  $user->getStaffInformation($spNo);
            $employeeid = $user->getEmployeeId($spNo);
            $memberid = $user->getMemberId($employeeid);
-           $share_info = $user->getMemberShareInformation($memberid);
+           $share_info = $user->getLatestSharePurchase($memberid);
+           if (!$share_info) {
+               $share_info = ['unit_price' => '', 'teller_no' => '', 'amount_paid' => '', 'shares_amount_word' => '', 'date' => ''];
+           }
            $bank_name = $user->getShareBankName($memberid);
                 //   var_dump($payment);
            //$session = $putme->getCurrentSession();

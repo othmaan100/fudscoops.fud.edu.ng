@@ -53,65 +53,69 @@ class MemberG2{
             
             
     
-    //Query to purchase a share 
-  
-    public function PurchaseShare($employeeid,$share_amount,$bank_id,$tellerno,$amount_paid,$share_amount_word){
-        
-            
-            $member = new MemberG2();
-            //return $next_of_kin_name. " ". $next_of_kin_gsm. " ". $next_of_kin_address." ". $employeeid." ". $monthly_savings;
+    // ===================== Share ledger (from 2026-10-08) =====================
+    // fudscoops_shares is a ledger (db/2026-10-08_loans_shares.sql): one row per purchase, transfer in,
+    // transfer out (negative amount) or conversion from savings. share_status: 0 pending, 1 approved,
+    // -1 declined. A member's holding is the sum of approved rows (getShareHolding). Purchases go through
+    // Secretary (endorse) -> Chairman (approve) -> Treasurer (confirm); transfers through receiver (accept)
+    // -> Secretary -> Chairman -> Treasurer; conversions through Chairman -> Treasurer. Declines are -1.
+    // These methods return 1 on success, otherwise a message explaining why the request was refused.
+    // Helpers (shareUnitPrice, getShareHolding, shareAmountError, ...) are at the end of the class.
 
-    
-            $db = new DB();
-            $user = new User();
-            $con = $db->getConnection();
-            $memberid = $user->getMemberId($employeeid);
-            
-            $sql ="SELECT * FROM fudscoops_shares WHERE member_id='$memberid'";
-            $stmt = $con->prepare($sql);
-            $stmt->execute();
-            $count = $stmt->rowCount();
-            if($count>0){
-                
-              $sql ="UPDATE fudscoops_shares SET unit_price=:share_amount,bank_id=:bank_id,teller_no=:tellerno,
-              amount_paid=:amount_paid,shares_amount_word=:share_amount_word WHERE member_id='$memberid'";
-              $stmt = $con->prepare($sql);
-              $stmt->bindParam(':share_amount', $share_amount,PDO::PARAM_STR);
-              $stmt->bindParam(':bank_id', $bank_id,PDO::PARAM_STR);
-              $stmt->bindParam(':tellerno', $tellerno,PDO::PARAM_STR);
-              $stmt->bindParam(':amount_paid', $amount_paid,PDO::PARAM_STR);
-              $stmt->bindParam(':share_amount_word', $share_amount_word,PDO::PARAM_STR);
-              $stmt->execute();
-              if ($stmt) {
-                        return 1;
-                } else {
-                    return -1;
-                }
-              
-            }else{
-             
-            
-                $sql = "INSERT INTO fudscoops_shares(member_id, unit_price, bank_id, teller_no,amount_paid,shares_amount_word)
-                VALUES (:memberid, :share_amount, :bank_id, :tellerno, :amount_paid, :share_amount_word)";
-                // Create a prepared statement
-                $stmt = $con->prepare($sql);
-                // Bind parameters
-                $stmt->bindParam(':memberid', $memberid,PDO::PARAM_STR);
-                $stmt->bindParam(':share_amount', $share_amount,PDO::PARAM_STR);
-                $stmt->bindParam(':bank_id', $bank_id,PDO::PARAM_STR);
-                $stmt->bindParam(':tellerno', $tellerno,PDO::PARAM_STR);
-                $stmt->bindParam(':amount_paid', $amount_paid,PDO::PARAM_STR);
-                $stmt->bindParam(':share_amount_word', $share_amount_word,PDO::PARAM_STR);
-                // Execute the query
-                $stmt->execute();
-    
-                    if ($stmt) {
-                        
-                            return 1;
-                    } else {
-                        return -1;
-                    }//end if
-            }
+    // A new purchase record every time; it counts once the Treasurer confirms it.
+
+    public function PurchaseShare($employeeid,$share_amount,$bank_id,$tellerno,$amount_paid,$share_amount_word){
+        $user = new User();
+        $con = (new DB())->getConnection();
+        $memberid = $user->getMemberId($employeeid);
+        if (!$memberid || !self::isFullMember($memberid)) {
+            return 'Only approved members can buy shares.';
+        }
+
+        $amount = self::money($share_amount);
+        if ($error = self::shareAmountError($amount)) {
+            return $error;
+        }
+        if (self::money($amount_paid) !== $amount) {
+            return 'The amount paid must be the same as the share amount.';
+        }
+        $tellerno = trim((string) $tellerno);
+        if ($tellerno === '' || !ctype_digit($tellerno) || (int) $tellerno <= 0) {
+            return 'Enter the teller number of the payment.';
+        }
+        if (empty($bank_id) || (int) $bank_id <= 0) {
+            return 'Select the bank of payment.';
+        }
+
+        $stmt = $con->prepare("SELECT 1 FROM fudscoops_shares WHERE member_id = :member_id AND entry_type = 'purchase'
+                               AND share_status = 0 AND shares_is_deleted = 0");
+        $stmt->bindParam(':member_id', $memberid, PDO::PARAM_INT);
+        $stmt->execute();
+        if ($stmt->fetchColumn()) {
+            return 'You already have a share purchase awaiting approval.';
+        }
+
+        $stmt = $con->prepare("SELECT 1 FROM fudscoops_shares WHERE teller_no = :teller AND bank_id = :bank
+                               AND entry_type = 'purchase' AND share_status <> -1 AND shares_is_deleted = 0");
+        $stmt->bindValue(':teller', (int) $tellerno, PDO::PARAM_INT);
+        $stmt->bindValue(':bank', (int) $bank_id, PDO::PARAM_INT);
+        $stmt->execute();
+        if ($stmt->fetchColumn()) {
+            return 'This teller number has already been used for a share purchase.';
+        }
+
+        $words = $user->numberToWords($amount);
+        $sql = "INSERT INTO fudscoops_shares (member_id, entry_type, unit_price, bank_id, teller_no, amount_paid, shares_amount_word, date,
+                                              share_status, secretary_comment, chairman_comment, secretary_endorse_date, chairman_approval_date, update_at)
+                VALUES (:memberid, 'purchase', :amount, :bank_id, :tellerno, :amount_paid, :words, NOW(), 0, '', '', NOW(), NOW(), NOW())";
+        $stmt = $con->prepare($sql);
+        $stmt->bindParam(':memberid', $memberid, PDO::PARAM_INT);
+        $stmt->bindValue(':amount', (string) $amount, PDO::PARAM_STR);
+        $stmt->bindValue(':bank_id', (int) $bank_id, PDO::PARAM_INT);
+        $stmt->bindValue(':tellerno', (int) $tellerno, PDO::PARAM_INT);
+        $stmt->bindValue(':amount_paid', $amount, PDO::PARAM_INT);
+        $stmt->bindParam(':words', $words, PDO::PARAM_STR);
+        return $stmt->execute() ? 1 : 'Could not save the share purchase. Contact system admin.';
     }
     
     public static function verifyBuyer($staffno)
@@ -223,22 +227,18 @@ class MemberG2{
     
     public static function checkWorth($worth)
     {
-        $db = new DB();
         $user = new User();
-        $con = $db->getConnection();
-        $shareAmount = $user->getShareAmount($_SESSION['username']);
-    
-        // Ensure worth is not greater than total share amount
-        if ($worth > $shareAmount) {
+        $employeeId = $user->getEmployeeId($_SESSION['username']);
+        $memberId = $user->getMemberId($employeeId);
+        $available = self::getShareHolding($memberId) - self::pendingTransfersOut($employeeId);
+        $worth = self::money($worth);
+
+        if ($worth === null || $worth > $available) {
             return -1; // worth exceeds available share amount
         }
-    
-        // Ensure remaining balance is not less than ₦20,000
-        $remainingBalance = $shareAmount - $worth;
-        if ($remainingBalance < 20000) {
+        if ($available - $worth < self::minBalanceAfterTransfer()) {
             return -2; // remaining balance too low
         }
-    
         return 1; // valid transaction
     }
     
@@ -267,200 +267,109 @@ class MemberG2{
 
     
     public function transferPendingShare($employeeid, $worth, $share_amount_word) {
-        $member = new MemberG2();
-        $db = new DB();
         $user = new User();
-        $con = $db->getConnection();
-        
-        // Fetch member ID and share ID
-        $transfer_employeeid =$user->getEmployeeId($_SESSION['username']);
-        $memberid = $user->getMemberId($transfer_employeeid);
-        //$employeeid =$user->getEmployeeId($spNo);
-        $shareId = $user->getShareId($memberid);
-        $date = new DateTime();
-        $shareDate = $date->format('Y-m-d H:i:s');
-        
-        // Check transfer_status in fudscoops_shares
-        $sql = "SELECT transfer_status FROM fudscoops_shares WHERE shares_id = :shareid";
-        $stmt = $con->prepare($sql);
-        $stmt->bindParam(':shareid', $shareId, PDO::PARAM_INT);
-        $stmt->execute();
-        $shareRow = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        if ($shareRow) {
-            // If a transfer has been initiated (transfer_status = 1)
-            if ($shareRow['transfer_status'] == 1) {
-        
-                // Check the latest transfer status in fudscoops_shares_transfer
-                $sqlCheckTransfer = "SELECT share_transfer_status 
-                                     FROM fudscoops_shares_transfer 
-                                     WHERE shares_id = :shareid 
-                                     ORDER BY transfer_id DESC LIMIT 1";
-                $stmtCheckTransfer = $con->prepare($sqlCheckTransfer);
-                $stmtCheckTransfer->bindParam(':shareid', $shareId, PDO::PARAM_INT);
-                $stmtCheckTransfer->execute();
-                $transferRow = $stmtCheckTransfer->fetch(PDO::FETCH_ASSOC);
-        
-                // If there is a transfer record and it's still pending (0), block new transfer
-                if ($transferRow && $transferRow['share_transfer_status'] == 0) {
-                    return "Error: You already have a pending share transfer awaiting approval.";
-                }
-        
-                // If the last transfer is approved (1), allow new transfer (no return)
-                // Optionally, you may reset transfer_status back to 0 here if you want
-                // $sqlUpdate = "UPDATE fudscoops_shares SET transfer_status = 0 WHERE shares_id = :shareid";
-                // $stmtUpdate = $con->prepare($sqlUpdate);
-                // $stmtUpdate->bindParam(':shareid', $shareId, PDO::PARAM_INT);
-                // $stmtUpdate->execute();
-            }
+        $con = (new DB())->getConnection();
+
+        $senderEmployeeId = $user->getEmployeeId($_SESSION['username']);
+        $senderMemberId = $user->getMemberId($senderEmployeeId);
+        if (!$senderMemberId || !self::isFullMember($senderMemberId)) {
+            return 'Only approved members can transfer shares.';
+        }
+        $receiverMemberId = $employeeid ? $user->getMemberId($employeeid) : 0;
+        if (!$receiverMemberId || !self::isFullMember($receiverMemberId)) {
+            return 'The receiver must be an approved member of the cooperative.';
+        }
+        if ((int) $employeeid === (int) $senderEmployeeId) {
+            return 'You cannot transfer shares to yourself.';
         }
 
-    
-        // If transfer_status is 0, update it to 1
-        $sql2 = "UPDATE fudscoops_shares SET transfer_status = 1 WHERE shares_id = :shareid";
-        $stmt2 = $con->prepare($sql2);
-        $stmt2->bindParam(':shareid', $shareId, PDO::PARAM_INT);
-        $stmt2->execute();
-            if (!$stmt2->execute()) {
-            return "Error: Failed to update transfer status.";
-            }
-        
-        // Check if the receiver has existing shares
-        $sql3 = "SELECT * FROM fudscoops_shares_transfer WHERE received_employee_id = :employeeid AND share_transfer_status=0";
-        $stmt3 = $con->prepare($sql3);
-        $stmt3->bindParam(':employeeid', $employeeid, PDO::PARAM_INT);
-        $stmt3->execute();
-        
-        if ($stmt3->rowCount() > 0) {
-            // Receiver found: Update their amount_paid and shares_amount_word
-            $sql4 = "UPDATE fudscoops_shares_transfer SET worth = :worth, amount_word = :share_amount_word, transfer_employee_id = :transfer_employee_id, received_employee_id = :received_employee_id, transfer_date = :date WHERE shares_id = :shareid";
-            $stmt4 = $con->prepare($sql4);
-            $stmt4->bindParam(':worth', $worth, PDO::PARAM_INT);
-            $stmt4->bindParam(':share_amount_word', $share_amount_word, PDO::PARAM_STR);
-            $stmt4->bindParam(':transfer_employee_id', $transfer_employeeid, PDO::PARAM_INT);
-            $stmt4->bindParam(':received_employee_id', $employeeid, PDO::PARAM_INT);
-            $stmt4->bindParam(':date', $shareDate, PDO::PARAM_STR);
-            $stmt4->bindParam(':shareid', $shareId, PDO::PARAM_INT);
-            $stmt4->execute();
-            
-            if ($stmt4->rowCount() > 0) {
-                return 1; // Update successful
-            } else {
-                return -1; // Update failed
-            }
-        } else {
-            // Receiver not found: Insert a new record
-            $sql5 = "INSERT INTO fudscoops_shares_transfer (shares_id, worth, amount_word, transfer_employee_id, received_employee_id, transfer_date) VALUES (:shareid, :worth, :amount_word, :transfer_employee_id, :received_employee_id, :date)";
-            $stmt5 = $con->prepare($sql5);
-            $stmt5->bindParam(':shareid', $shareId, PDO::PARAM_INT);
-            $stmt5->bindParam(':worth', $worth, PDO::PARAM_INT);
-            $stmt5->bindParam(':amount_word', $share_amount_word, PDO::PARAM_STR);
-            $stmt5->bindParam(':transfer_employee_id', $transfer_employeeid, PDO::PARAM_INT);
-            $stmt5->bindParam(':received_employee_id', $employeeid, PDO::PARAM_INT);
-            $stmt5->bindParam(':date', $shareDate, PDO::PARAM_STR);
-            if ($stmt5->execute()) {
-                return 1; // Insert successful
-            } else {
-                return -1; // Insert failed
-            }
+        $worth = self::money($worth);
+        if ($error = self::shareAmountError($worth)) {
+            return $error;
         }
+        if (self::pendingTransfersOut($senderEmployeeId) > 0) {
+            return 'You already have a share transfer awaiting approval.';
+        }
+        $holding = self::getShareHolding($senderMemberId);
+        $minBalance = self::minBalanceAfterTransfer();
+        if ($worth > $holding) {
+            return 'You can transfer at most ₦' . number_format($holding) . '.';
+        }
+        if ($holding - $worth < $minBalance) {
+            return 'You must keep at least ₦' . number_format($minBalance) . ' of shares after the transfer.';
+        }
+
+        // Link to the sender's latest approved share entry (used by the approval lists)
+        $stmt = $con->prepare("SELECT shares_id FROM fudscoops_shares WHERE member_id = :member_id AND share_status = 1
+                               AND shares_is_deleted = 0 ORDER BY shares_id DESC LIMIT 1");
+        $stmt->bindParam(':member_id', $senderMemberId, PDO::PARAM_INT);
+        $stmt->execute();
+        $shareId = (int) $stmt->fetchColumn();
+
+        $words = $user->numberToWords($worth);
+        $stmt = $con->prepare("INSERT INTO fudscoops_shares_transfer (shares_id, worth, amount_word, transfer_employee_id, received_employee_id, transfer_date)
+                               VALUES (:shareid, :worth, :amount_word, :sender, :receiver, NOW())");
+        $stmt->bindParam(':shareid', $shareId, PDO::PARAM_INT);
+        $stmt->bindParam(':worth', $worth, PDO::PARAM_INT);
+        $stmt->bindParam(':amount_word', $words, PDO::PARAM_STR);
+        $stmt->bindParam(':sender', $senderEmployeeId, PDO::PARAM_INT);
+        $stmt->bindParam(':receiver', $employeeid, PDO::PARAM_INT);
+        return $stmt->execute() ? 1 : 'Could not save the share transfer. Contact system admin.';
     }
   
     
-    public function TransferShare($memberid, $employeeid) {
-        $db = new DB();
+    public function TransferShare($transferId, $con = null) {
+        $con = $con ?: (new DB())->getConnection();
         $user = new User();
-        $con = $db->getConnection();
-    
-        // Fetch receiver's member ID
-        $receiverMemberId = $user->getShareReceiverMemberId($employeeid);
-        if (!$receiverMemberId) {
-            return -1; // Receiver does not exist
+        $ownTransaction = !$con->inTransaction();
+        try {
+            if ($ownTransaction) {
+                $con->beginTransaction();
+            }
+            $stmt = $con->prepare("SELECT * FROM fudscoops_shares_transfer WHERE transfer_id = :id AND share_transfer_status = 0
+                                   AND share_transfer_is_deleted = 0 FOR UPDATE");
+            $stmt->bindParam(':id', $transferId, PDO::PARAM_INT);
+            $stmt->execute();
+            $transfer = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$transfer) {
+                throw new RuntimeException('This share transfer is no longer awaiting approval.');
+            }
+            $senderMemberId = $user->getMemberId($transfer['transfer_employee_id']);
+            $receiverMemberId = $user->getMemberId($transfer['received_employee_id']);
+            $worth = (int) $transfer['worth'];
+            if (!$senderMemberId || !$receiverMemberId) {
+                throw new RuntimeException('The sender or receiver is not a member.');
+            }
+            if (self::getShareHolding($senderMemberId) < $worth) {
+                throw new RuntimeException("The sender no longer holds enough shares for this transfer.");
+            }
+
+            $insert = $con->prepare("INSERT INTO fudscoops_shares (member_id, entry_type, reference_id, unit_price, bank_id, teller_no, amount_paid,
+                                        shares_amount_word, date, share_status, secretary_comment, secretary_endorsement, chairman_comment,
+                                        chairman_approval, secretary_endorse_date, chairman_approval_date, update_at)
+                                     VALUES (:member_id, :type, :ref, :amount_text, 0, 0, :amount, :words, NOW(), 1, '', 1, '', 1, NOW(), NOW(), NOW())");
+            $words = $user->numberToWords($worth);
+            foreach ([[$senderMemberId, 'transfer_out', -$worth], [$receiverMemberId, 'transfer_in', $worth]] as $entry) {
+                $insert->execute([':member_id' => $entry[0], ':type' => $entry[1], ':ref' => $transferId,
+                                  ':amount_text' => (string) $entry[2], ':amount' => $entry[2], ':words' => $words]);
+            }
+            $update = $con->prepare("UPDATE fudscoops_shares_transfer SET share_transfer_status = 1, update_at = NOW() WHERE transfer_id = :id");
+            $update->execute([':id' => $transferId]);
+
+            if ($ownTransaction) {
+                $con->commit();
+            }
+            return 1;
+        } catch (Exception $e) {
+            if ($ownTransaction && $con->inTransaction()) {
+                $con->rollBack();
+            }
+            if (!($e instanceof RuntimeException)) {
+                error_log('TransferShare: ' . $e->getMessage());
+                return 'Could not complete the share transfer. Contact system admin.';
+            }
+            return $e->getMessage();
         }
-    
-        // Fetch 'amount_paid' from fudscoops_shares and 'worth' from fudscoops_shares_transfer (ensuring matching shares_id)
-        $sql1 = "SELECT s.amount_paid, s.unit_price,t.worth 
-                 FROM fudscoops_shares s
-                 JOIN fudscoops_shares_transfer t ON s.shares_id = t.shares_id
-                 WHERE s.member_id = :memberid";
-        $stmt1 = $con->prepare($sql1);
-        $stmt1->bindParam(':memberid', $memberid, PDO::PARAM_INT);
-        $stmt1->execute();
-        $shareData = $stmt1->fetch(PDO::FETCH_ASSOC);
-    
-        if (!$shareData) {
-            return -2; // No matching shares found
-        } else {
-    
-        $amount_paid = $shareData['amount_paid'];
-        $unit_price = $shareData['unit_price'];
-        $worth = $shareData['worth']; // Worth is from fudscoops_shares_transfer
-    
-        // Deduct from sender
-        $total_amount_paid_left = $amount_paid - $worth;
-        $total_unit_price_left = $unit_price - $worth;
-        $total_share_amount_word_left = $user->numberToWords($total_amount_paid_left);
-    
-        $sql2 = "UPDATE fudscoops_shares 
-                 SET amount_paid = :amount_paid, shares_amount_word = :share_amount_word, unit_price =:unit_price 
-                 WHERE member_id = :memberid";
-        $stmt2 = $con->prepare($sql2);
-        $stmt2->bindParam(':amount_paid', $total_amount_paid_left, PDO::PARAM_INT);
-        $stmt2->bindParam(':share_amount_word', $total_share_amount_word_left, PDO::PARAM_STR);
-        $stmt2->bindParam(':unit_price', $total_unit_price_left, PDO::PARAM_INT);
-        $stmt2->bindParam(':memberid', $memberid, PDO::PARAM_INT);
-        $stmt2->execute();
-        
-        }
-        // Check if receiver already has shares using the required SQL pattern
-        $sql3 = "SELECT *,t.chairman_approval AS Approval,t.chairman_approval_date AS Date FROM fudscoops_shares_transfer t 
-                 JOIN employee e ON t.received_employee_id = e.employee_id 
-                 JOIN fudscoops_member m ON e.employee_id = m.employee_id 
-                 JOIN fudscoops_shares s ON m.member_id = s.member_id 
-                 WHERE s.member_id = :memberid";
-        $stmt3 = $con->prepare($sql3);
-        $stmt3->bindParam(':memberid', $receiverMemberId, PDO::PARAM_INT);
-        $stmt3->execute();
-        $receiverData = $stmt3->fetch(PDO::FETCH_ASSOC);
-    
-        $shareDate = (new DateTime())->format('Y-m-d H:i:s');
-        $unit_price = $user->getShareUnitAmount();
-        $share_amount_word_to_receiver = $user->numberToWords($worth);
-        $chairman_approval = $receiverData['Approval'];
-        $chairman_approval_date = $receiverData['Date'];
-        
-        if ($receiverData) {
-            // Update receiver's share
-            
-            $total_amount_to_receiver = $receiverData['amount_paid'] + $worth;
-            $total_unit_to_receiver = $receiverData['unit_price'] + $worth;
-            $total_share_amount_word_to_receiver = $user->numberToWords($total_amount_to_receiver);
-            $sql4 = "UPDATE fudscoops_shares 
-                     SET amount_paid = :amount_paid, shares_amount_word = :share_amount_word, unit_price =:unit_price 
-                     WHERE member_id = :receiverMemberId";
-            $stmt4 = $con->prepare($sql4);
-            $stmt4->bindParam(':amount_paid', $total_amount_to_receiver, PDO::PARAM_INT);
-            $stmt4->bindParam(':share_amount_word', $total_share_amount_word_to_receiver, PDO::PARAM_STR);
-            $stmt4->bindParam(':unit_price', $total_unit_to_receiver, PDO::PARAM_INT);
-            $stmt4->bindParam(':receiverMemberId', $receiverMemberId, PDO::PARAM_INT);
-            $stmt4->execute();
-        } else {
-            // Insert new record for receiver
-            $sql5 = "INSERT INTO fudscoops_shares (member_id, unit_price, amount_paid, shares_amount_word, date, chairman_approval, chairman_approval_date, update_at) 
-                     VALUES (:receiverMemberId, :share_unit_price, :amount_paid, :share_amount_word, :share_date, :chairman_approval, :chairman_approval_date, :update_at)";
-            $stmt5 = $con->prepare($sql5);
-            $stmt5->bindParam(':receiverMemberId', $receiverMemberId, PDO::PARAM_INT);
-            $stmt5->bindParam(':share_unit_price', $worth, PDO::PARAM_INT);
-            $stmt5->bindParam(':amount_paid', $worth, PDO::PARAM_INT);
-            $stmt5->bindParam(':share_amount_word', $share_amount_word_to_receiver, PDO::PARAM_STR);
-            $stmt5->bindParam(':share_date', $shareDate, PDO::PARAM_STR);
-            $stmt5->bindParam(':chairaman_approval', $chairman_approval, PDO::PARAM_INT);
-            $stmt5->bindParam(':chairaman_approval_date', $chairman_approval_date, PDO::PARAM_STR);
-            $stmt5->bindParam(':update_at', $shareDate, PDO::PARAM_STR);
-            $stmt5->execute();
-        }
-    
-        return 1; // Transfer successful
     }
 
     
@@ -468,7 +377,9 @@ class MemberG2{
         $db = new DB();
         $con = $db->getConnection();
     
-        $sql = "SELECT COUNT(transfer_id) as total FROM fudscoops_shares_transfer WHERE received_employee_id=:id";
+        // Transfers offered to this member and still waiting for them to accept
+        $sql = "SELECT COUNT(transfer_id) as total FROM fudscoops_shares_transfer
+                WHERE received_employee_id=:id AND is_accepted = 0 AND share_transfer_status = 0 AND share_transfer_is_deleted = 0";
         
         // Prepare the statement
         $stmt = $con->prepare($sql);
@@ -500,16 +411,14 @@ class MemberG2{
                         m.member_id, e.fname, e.lname,
                         t.shares_id, t.worth, t.amount_word,t.transfer_date,
                         t.transfer_employee_id,t.transfer_id,t.is_accepted
-                    FROM 
+                    FROM
                         fudscoops_shares_transfer t
                     JOIN
-                        fudscoops_shares s ON t.shares_id=s.shares_id 
-                    JOIN 
-                        fudscoops_member m ON s.member_id = m.member_id
-                    JOIN 
-                        employee e ON e.employee_id = m.employee_id
-                    WHERE 
-                        t.received_employee_id = :received_employee_id";
+                        employee e ON e.employee_id = t.transfer_employee_id
+                    JOIN
+                        fudscoops_member m ON m.employee_id = e.employee_id
+                    WHERE
+                        t.received_employee_id = :received_employee_id AND t.share_transfer_is_deleted = 0";
         
             $stmt = $con->prepare($sql);
             $stmt->bindParam(':received_employee_id', $received_employee_id, PDO::PARAM_INT);
@@ -588,7 +497,7 @@ class MemberG2{
                                         if(msg == 1){
                                             alert('Transfer successfully accepted!');
                                             // Dynamically update the button
-                                                const button = $(`.accept-transfer[data-transfer_id='${transferId}'']`);
+                                                const button = $(`.accept-transfer[data-transfer_id='\${transferId}']`);
                                                 button.text('Accepted'); // Change button text
                                                 button.prop('disabled', true); // Disable button
                                                 button.removeClass('accept-transfer').addClass('msg disabled'); // Update classes
@@ -607,70 +516,57 @@ class MemberG2{
     }
     
     public function acceptShare($transferId) {
-        // Initialize the database connection
-        $db = new DB();
-        $con = $db->getConnection();
-           
-        // Update the transfer status to accepted
-        $updateSql = "UPDATE fudscoops_shares_transfer SET is_accepted = 1 WHERE transfer_id = :transfer_id";
-        $updateStmt = $con->prepare($updateSql);
-        $updateStmt->bindParam(':transfer_id', $transferId, PDO::PARAM_INT);
-        
-        if ($updateStmt->execute()) {
-            return 1;
-        } else {
-            return -1;
-        }
+        $user = new User();
+        $receiverEmployeeId = $user->getEmployeeId(isset($_SESSION['username']) ? $_SESSION['username'] : '');
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("UPDATE fudscoops_shares_transfer SET is_accepted = 1
+                               WHERE transfer_id = :transfer_id AND received_employee_id = :receiver
+                                 AND share_transfer_status = 0 AND share_transfer_is_deleted = 0");
+        $stmt->bindParam(':transfer_id', $transferId, PDO::PARAM_INT);
+        $stmt->bindParam(':receiver', $receiverEmployeeId, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->rowCount() > 0 ? 1 : -1;
     }
     
     public function conversionPendingShare($employeeid, $worth, $share_amount_word) {
-        $member = new MemberG2();
-        $db = new DB();
         $user = new User();
-        $con = $db->getConnection();
-        
-        // Fetch member ID
+        $con = (new DB())->getConnection();
         $memberid = $user->getMemberId($employeeid);
-        
-        
-        $date = new DateTime();
-        $shareDate = $date->format('Y-m-d H:i:s');
-        
-        // Check if the member has the existing shares conversion
-        $sql = "SELECT * FROM fudscoops_shares_conversion WHERE member_id = :memberid AND conversion_status=0";
-        $stmt = $con->prepare($sql);
+        if (!$memberid || !self::isFullMember($memberid)) {
+            return 'Only approved members can convert savings to shares.';
+        }
+        $worth = self::money($worth);
+        if ($error = self::shareAmountError($worth)) {
+            return $error;
+        }
+        require_once('SavingsG1.php');
+        $balance = self::savingsBalance($memberid);
+        $keep = SavingsG1::getMinMonthlySavings();
+        if ($worth > $balance - $keep) {
+            return 'You can convert at most ₦' . number_format(max(0, $balance - $keep)) . ' (your savings balance is ₦' . number_format($balance)
+                 . ' and at least ₦' . number_format($keep) . ' must remain).';
+        }
+
+        $words = $user->numberToWords($worth);
+        // Change the amount of a conversion the Chairman has not decided yet, otherwise start a new one
+        $stmt = $con->prepare("SELECT conversion_id, chairman_approval FROM fudscoops_shares_conversion
+                               WHERE member_id = :memberid AND conversion_status = 0 AND share_conversion_is_deleted = 0");
         $stmt->bindParam(':memberid', $memberid, PDO::PARAM_INT);
         $stmt->execute();
-        
-        if ($stmt->rowCount() > 0) {
-            // Shares Coversion found: Update their amount_paid and shares_amount_word
-            $sql2 = "UPDATE fudscoops_shares_conversion SET amount_paid = :worth, shares_amount_word = :share_amount_word, conversion_date = :date WHERE member_id = :memberid AND conversion_status=0";
-            $stmt2 = $con->prepare($sql2);
-            $stmt2->bindParam(':worth', $worth, PDO::PARAM_STR);
-            $stmt2->bindParam(':share_amount_word', $share_amount_word, PDO::PARAM_STR);
-            $stmt2->bindParam(':date', $shareDate, PDO::PARAM_STR);
-            $stmt2->bindParam(':memberid', $memberid, PDO::PARAM_INT);
-            $stmt2->execute();
-            
-            if ($stmt2->rowCount() > 0) {
-                return 1; // Update successful
-            } else {
-                return -1; // Update failed
-            }
-        } else {
-            // Receiver not found: Insert a new record
-            $sql3 = "INSERT INTO fudscoops_shares_conversion (member_id, amount_paid, shares_amount_word, conversion_date) VALUES (:memberid, :worth, :amount_word, :date)";
-            $stmt3 = $con->prepare($sql3);
-            $stmt3->bindParam(':memberid', $memberid, PDO::PARAM_INT);
-            $stmt3->bindParam(':worth', $worth, PDO::PARAM_STR);
-            $stmt3->bindParam(':amount_word', $share_amount_word, PDO::PARAM_STR);
-            $stmt3->bindParam(':date', $shareDate, PDO::PARAM_STR);
-            if ($stmt3->execute()) {
-                return 1; // Insert successful
-            } else {
-                return -1; // Insert failed
-            }
+        $pending = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($pending && $pending['chairman_approval'] != 0) {
+            return 'You already have a conversion awaiting the Treasurer.';
         }
+        if ($pending) {
+            $stmt = $con->prepare("UPDATE fudscoops_shares_conversion SET amount_paid = :worth, shares_amount_word = :words, conversion_date = NOW()
+                                   WHERE conversion_id = :id");
+            $ok = $stmt->execute([':worth' => $worth, ':words' => $words, ':id' => $pending['conversion_id']]);
+        } else {
+            $stmt = $con->prepare("INSERT INTO fudscoops_shares_conversion (member_id, amount_paid, shares_amount_word, conversion_date)
+                                   VALUES (:memberid, :worth, :words, NOW())");
+            $ok = $stmt->execute([':memberid' => $memberid, ':worth' => $worth, ':words' => $words]);
+        }
+        return $ok ? 1 : 'Could not save the conversion. Contact system admin.';
     }
   
     
@@ -803,7 +699,7 @@ class MemberG2{
             LEFT JOIN 
                 employee e2 ON e2.employee_id = t.transfer_employee_id
             WHERE 
-                t.is_accepted = 1 AND t.share_transfer_status=0";
+                t.share_transfer_is_deleted = 0 AND t.is_accepted = 1 AND t.share_transfer_status=0";
             $stmt = $con->prepare($sql);
             $stmt->execute();
         
@@ -866,97 +762,68 @@ class MemberG2{
     }
     
     public function getShareViewTable($employeeid) {
-            $db = new DB();
-            $con = $db->getConnection();
-        
-            // Get all loan details associated with the guarantor
-            $sql = "SELECT 
-                        m.member_id, e.fname, e.lname,e.oname,
-                        s.shares_id, s.amount_paid, s.shares_amount_word, s.unit_price,s.teller_no, s.date
-                    FROM 
-                        fudscoops_shares s
-                    JOIN 
-                        fudscoops_member m ON s.member_id = m.member_id
-                    JOIN 
-                        employee e ON e.employee_id = m.employee_id
-                    WHERE e.employee_id =:empId AND s.share_status = 1 AND s.chairman_approval = 1
-                    ";
+            $con = (new DB())->getConnection();
+            $sql = "SELECT s.shares_id, s.entry_type, s.amount_paid, s.teller_no, s.date
+                    FROM fudscoops_shares s
+                    JOIN fudscoops_member m ON s.member_id = m.member_id
+                    WHERE m.employee_id = :empId AND s.share_status = 1 AND s.shares_is_deleted = 0
+                    ORDER BY s.date, s.shares_id";
             $stmt = $con->prepare($sql);
             $stmt->bindParam(':empId', $employeeid, PDO::PARAM_INT);
             $stmt->execute();
-        
-            // Fetch all share information for the guarantor
             $shareInfo = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
+            $types = ['purchase' => 'Purchase', 'transfer_in' => 'Received (transfer)', 'transfer_out' => 'Given (transfer)', 'conversion' => 'Converted from savings'];
+            $unitPrice = self::shareUnitPrice();
+
             if ($shareInfo) {
                 $sn = 0;
+                $total = 0;
                 echo "<h3>FUDCOOPS Shares Details</h3>";
                 echo "<table id='example' class='display table table-striped table-bordered' width='100%'>";
                 echo "<thead>
                         <tr>
                             <th>S/N</th>
-                            <th>Share Holder Name</th>
-                            <th>Share Amount</th>
-                            <th>Share Unit Price</th>
-                            <th>Share Purchase Date</th>
+                            <th>Date</th>
+                            <th>Type</th>
+                            <th>Amount (₦)</th>
+                            <th>Teller No</th>
+                            <th>Balance (₦)</th>
                         </tr>
                       </thead>";
                 echo "<tbody>";
-                // Display each loan applicant in a table row
                 foreach ($shareInfo as $share) {
                     $sn++;
+                    $total += $share['amount_paid'];
                     echo "<tr>";
                     echo "<td>" . $sn . "</td>";
-                    echo "<td>" . htmlspecialchars($share['fname'] . ' ' . $share['lname'] . ' ' . $share['oname']) . "</td>";
-                    echo "<td>" . htmlspecialchars($share['amount_paid']) . "</td>";
-                    echo "<td>" . htmlspecialchars($share['unit_price']) . "</td>";
-                    echo "<td>" . htmlspecialchars($share['date']) . "</td>";
-                    
+                    echo "<td>" . htmlspecialchars(date('d M Y', strtotime($share['date']))) . "</td>";
+                    echo "<td>" . htmlspecialchars(isset($types[$share['entry_type']]) ? $types[$share['entry_type']] : $share['entry_type']) . "</td>";
+                    echo "<td>" . number_format($share['amount_paid'], 2) . "</td>";
+                    echo "<td>" . ($share['teller_no'] ? htmlspecialchars($share['teller_no']) : '') . "</td>";
+                    echo "<td>" . number_format($total, 2) . "</td>";
                     echo "</tr>";
                 }
-        
                 echo "</tbody>";
+                echo "<tfoot><tr><th colspan='5'>Total shares" . ($unitPrice > 0 ? ' (' . number_format(floor($total / $unitPrice)) . ' units at ₦' . number_format($unitPrice) . ')' : '') . "</th><th>" . number_format($total, 2) . "</th></tr></tfoot>";
                 echo "</table>";
             } else {
                 echo "<p>No Shares found.</p>";
             }
-            
-            // Initialize DataTable
-        echo "<script>
-                    $(document).ready(function() {
-                        $('#transferTable').DataTable({
-                            paging: true,
-                            searching: true,
-                            ordering: true,
-                            responsive: true
-                        });
-                    });
-                  </script>";
-        
     }
     
     public function getShareHolderViewTable() {
-            $db = new DB();
-            $con = $db->getConnection();
-        
-            // Get all loan details associated with the guarantor
-            $sql = "SELECT 
-                        m.member_id, e.fname, e.lname,e.oname,
-                        s.shares_id, s.amount_paid, s.shares_amount_word, s.unit_price,s.teller_no, s.date
-                    FROM 
-                        fudscoops_shares s
-                    JOIN 
-                        fudscoops_member m ON s.member_id = m.member_id
-                    JOIN 
-                        employee e ON e.employee_id = m.employee_id
-                    WHERE s.share_status = 1 AND s.chairman_approval = 1
-                    ";
-            $stmt = $con->prepare($sql);
-            $stmt->execute();
-        
-            // Fetch all share information for the guarantor
-            $shareInfo = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
+            $con = (new DB())->getConnection();
+            $sql = "SELECT m.member_id, e.sp_no, e.fname, e.lname, e.oname, SUM(s.amount_paid) AS total, MAX(s.date) AS last_date
+                    FROM fudscoops_shares s
+                    JOIN fudscoops_member m ON s.member_id = m.member_id
+                    JOIN employee e ON e.employee_id = m.employee_id
+                    WHERE s.share_status = 1 AND s.shares_is_deleted = 0
+                    GROUP BY m.member_id, e.sp_no, e.fname, e.lname, e.oname
+                    HAVING total > 0
+                    ORDER BY e.fname, e.lname";
+            $shareInfo = $con->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+            $unitPrice = self::shareUnitPrice();
+
             if ($shareInfo) {
                 $sn = 0;
                 echo "<h3>FUDCOOPS Shares Details</h3>";
@@ -964,44 +831,30 @@ class MemberG2{
                 echo "<thead>
                         <tr>
                             <th>S/N</th>
+                            <th>Staff No</th>
                             <th>Share Holder Name</th>
-                            <th>Share Amount</th>
-                            <th>Share Unit Price</th>
-                            <th>Share Purchase Date</th>
+                            <th>Share Amount (₦)</th>
+                            <th>Units</th>
+                            <th>Last Movement</th>
                         </tr>
                       </thead>";
                 echo "<tbody>";
-                // Display each loan applicant in a table row
                 foreach ($shareInfo as $share) {
                     $sn++;
                     echo "<tr>";
                     echo "<td>" . $sn . "</td>";
+                    echo "<td>" . htmlspecialchars($share['sp_no']) . "</td>";
                     echo "<td>" . htmlspecialchars($share['fname'] . ' ' . $share['lname'] . ' ' . $share['oname']) . "</td>";
-                    echo "<td>" . htmlspecialchars($share['amount_paid']) . "</td>";
-                    echo "<td>" . htmlspecialchars($share['unit_price']) . "</td>";
-                    echo "<td>" . htmlspecialchars($share['date']) . "</td>";
-                    
+                    echo "<td>" . number_format($share['total'], 2) . "</td>";
+                    echo "<td>" . ($unitPrice > 0 ? number_format(floor($share['total'] / $unitPrice)) : '') . "</td>";
+                    echo "<td>" . htmlspecialchars(date('d M Y', strtotime($share['last_date']))) . "</td>";
                     echo "</tr>";
                 }
-        
                 echo "</tbody>";
                 echo "</table>";
             } else {
                 echo "<p>No Shares found.</p>";
             }
-            
-            // Initialize DataTable
-        echo "<script>
-                    $(document).ready(function() {
-                        $('#transferTable').DataTable({
-                            paging: true,
-                            searching: true,
-                            ordering: true,
-                            responsive: true
-                        });
-                    });
-                  </script>";
-        
     }
     
     public function getStaffViewTable() {
@@ -1162,7 +1015,7 @@ class MemberG2{
             LEFT JOIN 
                 employee e2 ON e2.employee_id = t.transfer_employee_id
             WHERE 
-                t.is_accepted = 1 AND t.share_transfer_status=0";
+                t.share_transfer_is_deleted = 0 AND t.is_accepted = 1 AND t.share_transfer_status=0";
             $stmt = $con->prepare($sql);
             $stmt->execute();
         
@@ -1240,7 +1093,7 @@ class MemberG2{
             JOIN
                 employee e ON e.employee_id = m.employee_id
             WHERE 
-                c.conversion_status=0";
+                c.share_conversion_is_deleted = 0 AND c.conversion_status=0";
             $stmt = $con->prepare($sql);
             $stmt->execute();
         
@@ -1398,7 +1251,7 @@ class MemberG2{
             LEFT JOIN 
                 employee e2 ON e2.employee_id = t.transfer_employee_id
             WHERE 
-                t.is_accepted = 1 AND t.chairman_approval=1 AND t.share_transfer_status=0";
+                t.share_transfer_is_deleted = 0 AND t.is_accepted = 1 AND t.chairman_approval=1 AND t.share_transfer_status=0";
             $stmt = $con->prepare($sql);
             $stmt->execute();
         
@@ -1477,7 +1330,7 @@ class MemberG2{
                 employee e ON e.employee_id = m.employee_id
            
             WHERE 
-                c.chairman_approval=1 AND c.conversion_status=0";
+                c.share_conversion_is_deleted = 0 AND c.chairman_approval=1 AND c.conversion_status=0";
             $stmt = $con->prepare($sql);
             $stmt->execute();
         
@@ -3058,379 +2911,253 @@ class MemberG2{
     }
     
     
-    public function secretaryEndorsement($shares_id,$member_id,$action,$comment) 
+    public function secretaryEndorsement($shares_id,$member_id,$action,$comment)
     {
-        $db = new DB();
-        $con = $db->getConnection();
-        $date =date('Y-m-d');
-        if($action =='Proceed'){
-            $decision =1;
-        }else{
-            $decision =0;
+        $decision = self::decisionValue($action);
+        if ($decision === null) {
+            return 'Please click Proceed or Decline.';
         }
-        $sql = "UPDATE fudscoops_shares SET secretary_comment=:comment,secretary_endorsement =:endorse,secretary_endorse_date=:date WHERE shares_id=:shares_id AND member_id=:member_id";
-        
+        $con = (new DB())->getConnection();
+        $sql = "UPDATE fudscoops_shares
+                SET secretary_comment = :comment, secretary_endorsement = :endorse, secretary_endorse_date = NOW(),
+                    share_status = :status, update_at = NOW()
+                WHERE shares_id = :shares_id AND member_id = :member_id AND entry_type = 'purchase'
+                  AND share_status = 0 AND secretary_endorsement = 0";
         $stmt = $con->prepare($sql);
-        $stmt->bindParam(':date', $date, PDO::PARAM_STR);
-        $stmt->bindParam(':endorse', $decision, PDO::PARAM_INT);
+        $stmt->bindValue(':comment', (string) $comment, PDO::PARAM_STR);
+        $stmt->bindValue(':endorse', $decision, PDO::PARAM_INT);
+        $stmt->bindValue(':status', $decision === -1 ? -1 : 0, PDO::PARAM_INT);
         $stmt->bindParam(':shares_id', $shares_id, PDO::PARAM_INT);
         $stmt->bindParam(':member_id', $member_id, PDO::PARAM_INT);
-        $stmt->bindParam(':comment', $comment, PDO::PARAM_STR);
         $stmt->execute();
-        if ($stmt) {
-             return 1;
-        } else {
-            return 0; 
-        }
+        return $stmt->rowCount() > 0 ? 1 : 'This share purchase is no longer awaiting the Secretary.';
    }
    
-   public function secretaryTransferEndorsement($shares_id,$transfer_id,$action,$comment) 
+    public function secretaryTransferEndorsement($shares_id,$transfer_id,$action,$comment)
     {
-        $db = new DB();
-        $con = $db->getConnection();
-        $date =date('Y-m-d');
-        if($action =='Proceed'){
-            $decision =1;
-        }else{
-            $decision =0;
+        $decision = self::decisionValue($action);
+        if ($decision === null) {
+            return 'Please click Proceed or Decline.';
         }
-        $sql = "UPDATE fudscoops_shares_transfer SET secretary_comment=:comment,secretary_endorsement =:endorse,secretary_endorse_date=:date WHERE shares_id=:shares_id AND transfer_id=:transfer_id";
-        
+        $con = (new DB())->getConnection();
+        $sql = "UPDATE fudscoops_shares_transfer
+                SET secretary_comment = :comment, secretary_endorsement = :endorse, secretary_endorse_date = NOW(),
+                    share_transfer_status = :status, update_at = NOW()
+                WHERE transfer_id = :transfer_id AND share_transfer_status = 0 AND secretary_endorsement = 0";
         $stmt = $con->prepare($sql);
-        $stmt->bindParam(':date', $date, PDO::PARAM_STR);
-        $stmt->bindParam(':endorse', $decision, PDO::PARAM_INT);
-        $stmt->bindParam(':shares_id', $shares_id, PDO::PARAM_INT);
+        $stmt->bindValue(':comment', (string) $comment, PDO::PARAM_STR);
+        $stmt->bindValue(':endorse', $decision, PDO::PARAM_INT);
+        $stmt->bindValue(':status', $decision === -1 ? -1 : 0, PDO::PARAM_INT);
         $stmt->bindParam(':transfer_id', $transfer_id, PDO::PARAM_INT);
-        $stmt->bindParam(':comment', $comment, PDO::PARAM_STR);
         $stmt->execute();
-        if ($stmt) {
-             return 1;
-        } else {
-            return 0; 
-        }
+        return $stmt->rowCount() > 0 ? 1 : 'This share transfer is no longer awaiting the Secretary.';
    }
-   public function chairmanApproval($shares_id,$member_id,$action,$comment) 
+   public function chairmanApproval($shares_id,$member_id,$action,$comment)
    {
-        $db = new DB();
-        $con = $db->getConnection();
-        $date =date('Y-m-d');
-       
-                if($action =='Proceed'){
-                    $decision =1;
-                }else{
-                    $decision =0;
-                }
-            $sql = "UPDATE fudscoops_shares SET chairman_comment=:comment,chairman_approval =:decision,chairman_approval_date=:date WHERE shares_id=:shares_id AND member_id=:member_id";
-            
-            $stmt = $con->prepare($sql);
-            $stmt->bindParam(':date', $date, PDO::PARAM_STR);
-            $stmt->bindParam(':decision', $decision, PDO::PARAM_INT);
-            $stmt->bindParam(':shares_id', $shares_id, PDO::PARAM_INT);
-            $stmt->bindParam(':member_id', $member_id, PDO::PARAM_INT);
-            $stmt->bindParam(':comment', $comment, PDO::PARAM_STR);
-            $stmt->execute();
-            if ($stmt) {
-                 return 1;
-            } else {
-                return 0; 
-            }
-
+        $decision = self::decisionValue($action);
+        if ($decision === null) {
+            return 'Please click Proceed or Decline.';
+        }
+        $con = (new DB())->getConnection();
+        $sql = "UPDATE fudscoops_shares
+                SET chairman_comment = :comment, chairman_approval = :decision, chairman_approval_date = NOW(),
+                    share_status = :status, update_at = NOW()
+                WHERE shares_id = :shares_id AND member_id = :member_id AND entry_type = 'purchase'
+                  AND share_status = 0 AND secretary_endorsement = 1 AND chairman_approval = 0";
+        $stmt = $con->prepare($sql);
+        $stmt->bindValue(':comment', (string) $comment, PDO::PARAM_STR);
+        $stmt->bindValue(':decision', $decision, PDO::PARAM_INT);
+        $stmt->bindValue(':status', $decision === -1 ? -1 : 0, PDO::PARAM_INT);
+        $stmt->bindParam(':shares_id', $shares_id, PDO::PARAM_INT);
+        $stmt->bindParam(':member_id', $member_id, PDO::PARAM_INT);
+        $stmt->execute();
+        if ($stmt->rowCount() > 0) {
+            return 1;
+        }
+        return $this->sharePurchaseStage($shares_id) === 'secretary'
+            ? 'The Secretary has not endorsed this share purchase yet.'
+            : 'This share purchase is no longer awaiting the Chairman.';
     }
     
-    public function chairmanTransferApproval($shares_id,$transfer_id,$action,$comment) 
+    public function chairmanTransferApproval($shares_id,$transfer_id,$action,$comment)
     {
-        $db = new DB();
-        $con = $db->getConnection();
-        $date =date('Y-m-d');
-       
-                if($action =='Proceed'){
-                    $decision =1;
-                }else{
-                    $decision =0;
-                }
-            $sql = "UPDATE fudscoops_shares_transfer SET chairman_comment=:comment, chairman_approval =:decision, chairman_approval_date=:date WHERE shares_id=:shares_id AND transfer_id=:transfer_id";
-            
-            $stmt = $con->prepare($sql);
-            $stmt->bindParam(':date', $date, PDO::PARAM_STR);
-            $stmt->bindParam(':decision', $decision, PDO::PARAM_INT);
-            $stmt->bindParam(':shares_id', $shares_id, PDO::PARAM_INT);
-            $stmt->bindParam(':transfer_id', $transfer_id, PDO::PARAM_INT);
-            $stmt->bindParam(':comment', $comment, PDO::PARAM_STR);
-            $stmt->execute();
-            if ($stmt) {
-                 return 1;
-            } else {
-                return 0; 
-            }
-
+        $decision = self::decisionValue($action);
+        if ($decision === null) {
+            return 'Please click Proceed or Decline.';
+        }
+        $con = (new DB())->getConnection();
+        $sql = "UPDATE fudscoops_shares_transfer
+                SET chairman_comment = :comment, chairman_approval = :decision, chairman_approval_date = NOW(),
+                    share_transfer_status = :status, update_at = NOW()
+                WHERE transfer_id = :transfer_id AND share_transfer_status = 0 AND secretary_endorsement = 1 AND chairman_approval = 0";
+        $stmt = $con->prepare($sql);
+        $stmt->bindValue(':comment', (string) $comment, PDO::PARAM_STR);
+        $stmt->bindValue(':decision', $decision, PDO::PARAM_INT);
+        $stmt->bindValue(':status', $decision === -1 ? -1 : 0, PDO::PARAM_INT);
+        $stmt->bindParam(':transfer_id', $transfer_id, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->rowCount() > 0 ? 1 : 'This share transfer is not awaiting the Chairman (the Secretary must endorse it first).';
     }
     
-    public function chairmanConversionApproval($conversion_id,$action,$comment) 
+    public function chairmanConversionApproval($conversion_id,$action,$comment)
     {
-        $db = new DB();
-        $con = $db->getConnection();
-        $date =date('Y-m-d');
-       
-                if($action =='Proceed'){
-                    $decision =1;
-                }else{
-                    $decision =0;
-                }
-            $sql = "UPDATE fudscoops_shares_conversion SET chairman_comment=:comment, chairman_approval =:decision, chairman_approval_date=:date WHERE conversion_id=:conversion_id";
-            
-            $stmt = $con->prepare($sql);
-            $stmt->bindParam(':date', $date, PDO::PARAM_STR);
-            $stmt->bindParam(':decision', $decision, PDO::PARAM_INT);
-            $stmt->bindParam(':conversion_id', $conversion_id, PDO::PARAM_INT);
-            $stmt->bindParam(':comment', $comment, PDO::PARAM_STR);
-            $stmt->execute();
-            if ($stmt) {
-                 return 1;
-            } else {
-                return 0; 
-            }
-
+        $decision = self::decisionValue($action);
+        if ($decision === null) {
+            return 'Please click Proceed or Decline.';
+        }
+        $con = (new DB())->getConnection();
+        $sql = "UPDATE fudscoops_shares_conversion
+                SET chairman_comment = :comment, chairman_approval = :decision, chairman_approval_date = NOW(),
+                    conversion_status = :status, update_at = NOW()
+                WHERE conversion_id = :conversion_id AND conversion_status = 0 AND chairman_approval = 0";
+        $stmt = $con->prepare($sql);
+        $stmt->bindValue(':comment', (string) $comment, PDO::PARAM_STR);
+        $stmt->bindValue(':decision', $decision, PDO::PARAM_INT);
+        $stmt->bindValue(':status', $decision === -1 ? -1 : 0, PDO::PARAM_INT);
+        $stmt->bindParam(':conversion_id', $conversion_id, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->rowCount() > 0 ? 1 : 'This conversion is no longer awaiting the Chairman.';
     }
     
     
     public function processShare($shares_id,$member_id,$action){
-        $db = new DB();
-        $con = $db->getConnection();
-        $date=date('Y-m-d');
-        $status =1;
-       
-            // Update loan status in the database
-            $sql = "UPDATE fudscoops_shares SET share_status = :status , update_at=:date  WHERE shares_id = :shares_id";
-            $stmt = $con->prepare($sql);
-            $stmt->bindParam(':status', $status, PDO::PARAM_INT);
-            $stmt->bindParam(':shares_id', $shares_id, PDO::PARAM_INT);
-            $stmt->bindParam(':date', $date, PDO::PARAM_STR);
-            $stmt->execute();
-            if($stmt){
-                //insert only if the loan is approved
-                    
-                  return 1;
-            } else {
-                return 0; 
-            }
+        $decision = self::decisionValue($action);
+        if ($decision === null) {
+            return 'Please click Approve or Decline.';
+        }
+        $con = (new DB())->getConnection();
+        $sql = "UPDATE fudscoops_shares SET share_status = :status, update_at = NOW()
+                WHERE shares_id = :shares_id AND entry_type = 'purchase' AND share_status = 0 AND chairman_approval = 1";
+        $stmt = $con->prepare($sql);
+        $stmt->bindValue(':status', $decision, PDO::PARAM_INT);
+        $stmt->bindParam(':shares_id', $shares_id, PDO::PARAM_INT);
+        $stmt->execute();
+        if ($stmt->rowCount() > 0) {
+            return 1;
+        }
+        return $this->sharePurchaseStage($shares_id) === 'chairman' || $this->sharePurchaseStage($shares_id) === 'secretary'
+            ? 'The Chairman has not approved this share purchase yet.'
+            : 'This share purchase has already been decided.';
     }
     
     public function processTransferShare($shares_id, $transfer_id, $member_id, $action) {
-        $db = new DB();
-        $con = $db->getConnection();
-        $date = date('Y-m-d');
-        $status = 1;
-        $transfer_status = 0;
-    
-        // Update transfer status
-        $sql = "UPDATE fudscoops_shares_transfer 
-                SET share_transfer_status = :status, update_at = :date  
-                WHERE shares_id = :shares_id AND transfer_id = :transfer_id";
-        $stmt = $con->prepare($sql);
-        $stmt->bindParam(':status', $status, PDO::PARAM_INT);
-        $stmt->bindParam(':date', $date, PDO::PARAM_STR);
-        $stmt->bindParam(':shares_id', $shares_id, PDO::PARAM_INT);
-        $stmt->bindParam(':transfer_id', $transfer_id, PDO::PARAM_INT);
+        $decision = self::decisionValue($action);
+        if ($decision === null) {
+            return 'Please click Approve or Decline.';
+        }
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("SELECT is_accepted, chairman_approval, share_transfer_status FROM fudscoops_shares_transfer WHERE transfer_id = :id");
+        $stmt->bindParam(':id', $transfer_id, PDO::PARAM_INT);
         $stmt->execute();
-    
-        if ($stmt->rowCount() > 0) { // Ensure the first update was successful
-            // Update shares table
-        $sql1 = "UPDATE fudscoops_shares 
-                 SET transfer_status = :status  
-                 WHERE shares_id = :shares_id AND member_id = :member_id";
-        $stmt1 = $con->prepare($sql1);
-        $stmt1->bindParam(':status', $transfer_status, PDO::PARAM_INT);
-        $stmt1->bindParam(':shares_id', $shares_id, PDO::PARAM_INT);
-        $stmt1->bindParam(':member_id', $member_id, PDO::PARAM_INT);
-        $stmt1->execute();
-    
-            if ($stmt1->rowCount() > 0) {
-                // Get employee ID from the transfer table
-                $sql2 = "SELECT received_employee_id FROM fudscoops_shares_transfer 
-                         WHERE transfer_id = :transfer_id";
-                $stmt2 = $con->prepare($sql2);
-                $stmt2->bindParam(':transfer_id', $transfer_id, PDO::PARAM_INT);
-                $stmt2->execute();
-                $row = $stmt2->fetch(PDO::FETCH_ASSOC);
-    
-                if ($row) {
-                    $employeeid = $row['received_employee_id'];
-                    $this->TransferShare($member_id, $employeeid);
-                }
-    
-                return 1; // Success
-            }
+        $transfer = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$transfer || $transfer['share_transfer_status'] != 0) {
+            return 'This share transfer has already been decided.';
         }
-        return 0; // Failure
+        if ($transfer['chairman_approval'] != 1) {
+            return 'The Chairman has not approved this share transfer yet.';
+        }
+        if ($decision === -1) {
+            $stmt = $con->prepare("UPDATE fudscoops_shares_transfer SET share_transfer_status = -1, update_at = NOW() WHERE transfer_id = :id AND share_transfer_status = 0");
+            $stmt->bindParam(':id', $transfer_id, PDO::PARAM_INT);
+            $stmt->execute();
+            return 1;
+        }
+        if ($transfer['is_accepted'] != 1) {
+            return 'The receiver has not accepted this share transfer yet.';
+        }
+        return $this->TransferShare($transfer_id, $con);
     }
 
-    public function processConversionShare($conversion_id, $member_id, $action) 
+    public function processConversionShare($conversion_id, $member_id, $action)
     {
-        $db = new DB();
-        $con = $db->getConnection();
-        $date = date('Y-m-d H:i:s');
-        $status = 1; // approved
-    
-        // Only proceed if action is "approve"
-        if (strcasecmp($action, 'approve') === 0) 
-        {
-
-            // Update conversion status to approved
-            $sql = "UPDATE fudscoops_shares_conversion 
-                    SET conversion_status = :status, update_at = :date  
-                    WHERE member_id = :member_id AND conversion_id = :conversion_id AND conversion_status = 0";
-            $stmt = $con->prepare($sql);
-            $stmt->bindParam(':status', $status, PDO::PARAM_INT);
-            $stmt->bindParam(':date', $date, PDO::PARAM_STR);
-            $stmt->bindParam(':member_id', $member_id, PDO::PARAM_INT);
-            $stmt->bindParam(':conversion_id', $conversion_id, PDO::PARAM_INT);
-            $stmt->execute();
-    
-            // Check if update actually affected a record
-            if ($stmt->rowCount() > 0) {
-                // Proceed with share conversion
-                $this->convertShare($member_id, $conversion_id);
-                return 1; // Success
-            } else {
-                return -1; // No record updated (maybe already approved)
-            }
-        } 
-        else if (strcasecmp($action, 'decline') === 0)
-        {
-            // Handle rejection if needed
-            $status = 0; // rejected
-            $sql = "UPDATE fudscoops_shares_conversion 
-                    SET conversion_status = :status, update_at = :date  
-                    WHERE member_id = :member_id AND conversion_id = :conversion_id";
-            $stmt = $con->prepare($sql);
-            $stmt->bindParam(':status', $status, PDO::PARAM_INT);
-            $stmt->bindParam(':date', $date, PDO::PARAM_STR);
-            $stmt->bindParam(':member_id', $member_id, PDO::PARAM_INT);
-            $stmt->bindParam(':conversion_id', $conversion_id, PDO::PARAM_INT);
-            $stmt->execute();
-            return 2; // Rejected
+        $decision = self::decisionValue($action);
+        if ($decision === null) {
+            return 'Please click Approve or Decline.';
         }
-    
-        return 0; // Invalid action
+        $con = (new DB())->getConnection();
+        if ($decision === -1) {
+            $stmt = $con->prepare("UPDATE fudscoops_shares_conversion SET conversion_status = -1, update_at = NOW()
+                                   WHERE conversion_id = :id AND member_id = :member_id AND conversion_status = 0");
+            $stmt->execute([':id' => $conversion_id, ':member_id' => $member_id]);
+            return $stmt->rowCount() > 0 ? 1 : 'This conversion has already been decided.';
+        }
+        return $this->convertShare($member_id, $conversion_id);
     }
 
     
-    public function convertShare($memberid, $conversion_id) 
+    public function convertShare($memberid, $conversion_id)
     {
-        $db = new DB();
         $user = new User();
-        $con = $db->getConnection();
-        $chairman_approval = 1;
-        $type_id = 2;
-        $status = 1;
-        $shareDate = (new DateTime())->format('Y-m-d H:i:s');
-    
-        // Step 1: Fetch conversion details (worth, etc.)
-        $sql = "SELECT amount_paid AS worth, conversion_status 
-                FROM fudscoops_shares_conversion 
-                WHERE conversion_id = :conversionid";
-        $stmt = $con->prepare($sql);
-        $stmt->bindParam(':conversionid', $conversion_id, PDO::PARAM_INT);
-        $stmt->execute();
-        $conversion = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-        if (!$conversion) {
-            return 0; // no pending conversion found
+        $con = (new DB())->getConnection();
+        try {
+            $con->beginTransaction();
+            $stmt = $con->prepare("SELECT * FROM fudscoops_shares_conversion WHERE conversion_id = :id AND member_id = :member_id
+                                   AND conversion_status = 0 AND share_conversion_is_deleted = 0 FOR UPDATE");
+            $stmt->execute([':id' => $conversion_id, ':member_id' => $memberid]);
+            $conversion = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$conversion) {
+                throw new RuntimeException('This conversion has already been decided.');
+            }
+            if ($conversion['chairman_approval'] != 1) {
+                throw new RuntimeException('The Chairman has not approved this conversion yet.');
+            }
+            $worth = (int) $conversion['amount_paid'];
+            if ($worth <= 0 || self::savingsBalance($memberid) < $worth) {
+                throw new RuntimeException("The member's savings balance is too low for this conversion.");
+            }
+
+            $words = $user->numberToWords($worth);
+            $stmt = $con->prepare("INSERT INTO fudscoops_shares (member_id, entry_type, reference_id, unit_price, bank_id, teller_no, amount_paid,
+                                       shares_amount_word, date, share_status, secretary_comment, secretary_endorsement, chairman_comment,
+                                       chairman_approval, secretary_endorse_date, chairman_approval_date, update_at)
+                                   VALUES (:member_id, 'conversion', :ref, :amount_text, 0, 0, :amount, :words, NOW(), 1, '', 1, '', 1, NOW(), NOW(), NOW())");
+            $stmt->execute([':member_id' => $memberid, ':ref' => $conversion_id, ':amount_text' => (string) $worth, ':amount' => $worth, ':words' => $words]);
+
+            $stmt = $con->prepare("INSERT INTO fudscoops_withrawals (member_id, proposed_withrawal_amount, approved_withrawal_amount, withdrawal_type_id,
+                                       proposed_date, approved_date, chairman_approval)
+                                   VALUES (:member_id, :amount, :amount2, 2, NOW(), NOW(), 1)");
+            $stmt->execute([':member_id' => $memberid, ':amount' => $worth, ':amount2' => $worth]);
+
+            $stmt = $con->prepare("UPDATE fudscoops_shares_conversion SET conversion_status = 1, update_at = NOW() WHERE conversion_id = :id");
+            $stmt->execute([':id' => $conversion_id]);
+
+            $con->commit();
+            return 1;
+        } catch (Exception $e) {
+            if ($con->inTransaction()) {
+                $con->rollBack();
+            }
+            if (!($e instanceof RuntimeException)) {
+                error_log('convertShare: ' . $e->getMessage());
+                return 'Could not complete the conversion. Contact system admin.';
+            }
+            return $e->getMessage();
         }
-    
-        $worth = $conversion['worth'];
-        $share_amount_word_to_receiver = $user->numberToWords($worth);
-    
-        // Step 2: Check if the member already has a share record
-        $sqlCheck = "SELECT amount_paid FROM fudscoops_shares WHERE member_id = :memberId AND share_status =1";
-        $stmtCheck = $con->prepare($sqlCheck);
-        $stmtCheck->bindParam(':memberId', $memberid, PDO::PARAM_INT);
-        $stmtCheck->execute();
-        $shareData = $stmtCheck->fetch(PDO::FETCH_ASSOC);
-    
-        if ($shareData) {
-            // Member already has shares → update
-            $total_amount = $shareData['amount_paid'] + $worth;
-            $total_share_amount_word = $user->numberToWords($total_amount);
-    
-            $sql1 = "UPDATE fudscoops_shares 
-                     SET amount_paid = :amount_paid, shares_amount_word = :share_amount_word, unit_price = :unit_price 
-                     WHERE member_id = :memberId AND share_status =1";
-            $stmt1 = $con->prepare($sql1);
-            $stmt1->bindParam(':amount_paid', $total_amount, PDO::PARAM_INT);
-            $stmt1->bindParam(':share_amount_word', $total_share_amount_word, PDO::PARAM_STR);
-            $stmt1->bindParam(':unit_price', $total_amount, PDO::PARAM_INT);
-            $stmt1->bindParam(':memberId', $memberid, PDO::PARAM_INT);
-            $stmt1->execute();
-    
-        } else {
-            // Member does not have a share → insert new record
-            $sql2 = "INSERT INTO fudscoops_shares 
-                     (member_id, unit_price, amount_paid, shares_amount_word, date, share_status, chairman_approval, chairman_approval_date, update_at)
-                     VALUES (:memberId, :unit, :amount_paid, :share_amount_word, :share_date, :status, :chairman_approval, :chairman_approval_date, :update_at)";
-            $stmt2 = $con->prepare($sql2);
-            $stmt2->bindParam(':memberId', $memberid, PDO::PARAM_INT);
-            $stmt2->bindParam(':unit', $worth, PDO::PARAM_INT);
-            $stmt2->bindParam(':amount_paid', $worth, PDO::PARAM_INT);
-            $stmt2->bindParam(':share_amount_word', $share_amount_word_to_receiver, PDO::PARAM_STR);
-            $stmt2->bindParam(':share_date', $shareDate, PDO::PARAM_STR);
-            $stmt2->bindParam(':status', $status, PDO::PARAM_INT);
-            $stmt2->bindParam(':chairman_approval', $chairman_approval, PDO::PARAM_INT);
-            $stmt2->bindParam(':chairman_approval_date', $shareDate, PDO::PARAM_STR);
-            $stmt2->bindParam(':update_at', $shareDate, PDO::PARAM_STR);
-            $stmt2->execute();
-        }
-    
-        // Step 3: Record withdrawal transaction
-        $sql3 = "INSERT INTO fudscoops_withrawals 
-                 (member_id, proposed_withrawal_amount, approved_withrawal_amount, withdrawal_type_id, proposed_date, approved_date, chairman_approval) 
-                 VALUES (:memberId, :proposed_amount, :approved_amount, :type_id, :proposed_date, :date, :chairman_approval)";
-        $stmt3 = $con->prepare($sql3);
-        $stmt3->bindParam(':memberId', $memberid, PDO::PARAM_INT);
-        $stmt3->bindParam(':proposed_amount', $worth, PDO::PARAM_INT);
-        $stmt3->bindParam(':approved_amount', $worth, PDO::PARAM_INT);
-        $stmt3->bindParam(':type_id', $type_id, PDO::PARAM_INT);
-        $stmt3->bindParam(':proposed_date', $shareDate, PDO::PARAM_STR);
-        $stmt3->bindParam(':date', $shareDate, PDO::PARAM_STR);
-        $stmt3->bindParam(':chairman_approval', $chairman_approval, PDO::PARAM_INT);
-        $stmt3->execute();
-    
-        return 1; // Success
     }
 
 
         
-    public function notifyMemberShareApproval($memberId) 
-    
+    public function notifyMemberShareApproval($memberId)
     {
-        
-        $db = new DB();
-        $con = $db->getConnection();
-    
-        // Get the date two months ago
-        $twoMonthsAgo = date('Y-m-d', strtotime('-2 months'));
-    
-        // Query to check the member's share status and approval date
-        $q = "SELECT share_status, update_at FROM fudscoops_shares 
-              WHERE member_id = :member_id";
-        $stm = $con->prepare($q);
-        $stm->bindParam(':member_id', $memberId, PDO::PARAM_INT);
-        $stm->execute();
-        
-        // Fetch all rows
-        $shares = $stm->fetchAll(PDO::FETCH_ASSOC);
-    
-        if ($shares) {
-            foreach ($shares as $share) {
-                // Check if approval happened within the last 2 months
-                if ($share['share_status'] == 1 && $share['update_at'] >= $twoMonthsAgo) {
-                    return "<button class='btn btn-success'>Your Share Purchase Application has been Approved!</button>";
-                }
-            }
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("SELECT share_status, update_at FROM fudscoops_shares
+                               WHERE member_id = :member_id AND entry_type = 'purchase' AND shares_is_deleted = 0
+                               ORDER BY shares_id DESC LIMIT 1");
+        $stmt->bindParam(':member_id', $memberId, PDO::PARAM_INT);
+        $stmt->execute();
+        $latest = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$latest) {
+            return '';
+        }
+        if ($latest['share_status'] == 0) {
             return "<button class='btn btn-danger'>Your Share Purchase Application is still Pending.</button>";
         }
-    
-        return ''; // No message for members who don't exist in the table
+        if ($latest['update_at'] >= date('Y-m-d', strtotime('-2 months'))) {
+            return $latest['share_status'] == 1
+                ? "<button class='btn btn-success'>Your Share Purchase Application has been Approved!</button>"
+                : "<button class='btn btn-warning'>Your Share Purchase Application was Declined.</button>";
+        }
+        return '';
     }
     
     public function notifyMemberShareTransferApproval($memberId) 
@@ -3708,4 +3435,103 @@ class MemberG2{
 
 
 
+
+    public static function shareUnitPrice()
+    {
+        $con = (new DB())->getConnection();
+        $price = $con->query("SELECT price FROM fudscoops_share_unit ORDER BY shares_unit_id DESC LIMIT 1")->fetchColumn();
+        return $price ? (int) $price : 0;
+    }
+
+    private static function pendingTransfersOut($employeeId)
+    {
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("SELECT COALESCE(SUM(worth), 0) FROM fudscoops_shares_transfer
+                               WHERE transfer_employee_id = :employee_id AND share_transfer_status = 0 AND share_transfer_is_deleted = 0");
+        $stmt->bindParam(':employee_id', $employeeId, PDO::PARAM_INT);
+        $stmt->execute();
+        return (int) $stmt->fetchColumn();
+    }
+
+    private static function isFullMember($memberId)
+    {
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("SELECT 1 FROM fudscoops_member WHERE member_id = :member_id
+                               AND treasurer_approval = 1 AND chairman_approval = 1 AND is_deleted = 0");
+        $stmt->bindParam(':member_id', $memberId, PDO::PARAM_INT);
+        $stmt->execute();
+        return (bool) $stmt->fetchColumn();
+    }
+
+    private static function money($value)
+    {
+        $clean = preg_replace('/[^0-9.]/', '', (string) $value);
+        return ($clean === '' || !is_numeric($clean)) ? null : (int) round((float) $clean);
+    }
+
+    public static function shareAmountError($amount)
+    {
+        $price = self::shareUnitPrice();
+        if ($amount === null || $amount <= 0) {
+            return 'Enter a valid amount.';
+        }
+        if ($price > 0 && ($amount < $price || $amount % $price !== 0)) {
+            return 'Shares are in whole units of ₦' . number_format($price) . ' (e.g. ₦' . number_format($price) . ', ₦' . number_format($price * 2) . ').';
+        }
+        return null;
+    }
+
+    private static function decisionValue($action)
+    {
+        $action = strtolower(trim((string) $action));
+        if (in_array($action, ['proceed', 'approve', 'approved'], true)) {
+            return 1;
+        }
+        if (in_array($action, ['decline', 'disapprove', 'deapproved', 'declined'], true)) {
+            return -1;
+        }
+        return null;
+    }
+
+    private static function savingsBalance($memberId)
+    {
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("SELECT
+                (SELECT COALESCE(SUM(savings_amount), 0) FROM fudscoops_savings WHERE member_idmember = :m1)
+              - (SELECT COALESCE(SUM(approved_withrawal_amount), 0) FROM fudscoops_withrawals WHERE member_id = :m2 AND chairman_approval = 1)");
+        $stmt->execute([':m1' => $memberId, ':m2' => $memberId]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    private static function minBalanceAfterTransfer()
+    {
+        require_once('Settings.php');
+        return (int) Settings::get('share_min_balance_after_transfer', 20000);
+    }
+
+    private function sharePurchaseStage($shares_id)
+    {
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("SELECT share_status, secretary_endorsement, chairman_approval FROM fudscoops_shares WHERE shares_id = :id");
+        $stmt->bindParam(':id', $shares_id, PDO::PARAM_INT);
+        $stmt->execute();
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row || $row['share_status'] != 0) {
+            return 'decided';
+        }
+        if ($row['secretary_endorsement'] != 1) {
+            return 'secretary';
+        }
+        return $row['chairman_approval'] != 1 ? 'chairman' : 'treasurer';
+    }
+
+    public static function getShareHolding($memberId)
+    {
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("SELECT COALESCE(SUM(amount_paid), 0) FROM fudscoops_shares
+                               WHERE member_id = :member_id AND share_status = 1 AND shares_is_deleted = 0");
+        $stmt->bindParam(':member_id', $memberId, PDO::PARAM_INT);
+        $stmt->execute();
+        return (int) $stmt->fetchColumn();
+    }
 }
