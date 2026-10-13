@@ -19,6 +19,26 @@ function fudShowError(msg, fallback) {
     $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary"></div>');
     $('.msg .alert').text(fudServerMessage(msg, fallback));
 }
+// Loan application form (config/loans/loan_application_form.php): estimate shown in the Summary panel.
+// Same sums as MemberG3::treasurerReview: flat interest added once, total spread over the months.
+function fudLoanNumber(value) {
+    var n = parseFloat(String(value || '').replace(/[^0-9.]/g, ''));
+    return isNaN(n) ? 0 : n;
+}
+function fudLoanSummary() {
+    var form = $('#business_loan');
+    if (!form.length || !$('#sumAmount').length) {
+        return;
+    }
+    var money = function (v) { return '₦' + v.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+    var amount = fudLoanNumber($('#amount_applied').val());
+    var months = parseInt(form.find('input[name="loan_repayment"]:checked').val(), 10) || 0;
+    var interest = Math.round(amount * (parseFloat(form.data('rate')) || 0)) / 100;
+    $('#sumAmount').text(amount > 0 ? money(amount) : '–');
+    $('#sumInterest').text(amount > 0 ? money(interest) : '–');
+    $('#sumTotal').text(amount > 0 ? money(amount + interest) : '–');
+    $('#sumMonthly').text(amount > 0 && months > 0 ? money(Math.round((amount + interest) / months * 100) / 100) + ' × ' + months : '–');
+}
 function updateLoanStatus(loanId, status) {
     // Make an AJAX call to update the loan status
     fetch(`../../ajax/guarantor_decision.php?loan_id=${loanId}&status=${status}`)
@@ -44,7 +64,7 @@ var tableBody = ""
 
 $(document).ready(function () {
     var isGuarantorVerified = false;// this is to track the guarantor verification status
-    var isloanDeserving = false;// this is to track the loan amoun 
+    var isLoanDeserving = false;// this is to track the loan amount check (#amount_applied)
     var isBuyerVerified = false;// this is to track the guarantor verification status
 
     $('.fixed-table-loading').hide();
@@ -1493,18 +1513,17 @@ $(document).on('submit', '#commodity_request', function(e) {
             alert("Please verify your guarantor before submitting the form.");
             return;
         }
-        if (!isloanDeserving) {
-            alert("You don't have enough funds to apply for this loan.");
+        if (!isLoanDeserving) {
+            alert($('.amount_msg').text() || "Please check the amount you are applying for.");
             return;
         }
         var data = $(this).serialize();
-        console.log(data)
-         //alert(data)
-        $('.msg').html('<div class="alert offset-md-4 col-4  alert-primary"><i> Applying please wait...</i></div>')
-        result = confirm("Are you sure you want to apply for this business_loan ?")
+        var typeName = $(this).data('type-name') || 'loan';
+        result = confirm("Apply for a " + typeName + " of ₦" + fudLoanNumber($('#amount_applied').val()).toLocaleString() + "?")
         if (!result) {
             return
         }
+        $('.msg').html('<div class="alert alert-primary"><i> Applying please wait...</i></div>')
         $.ajax({
             url: "../../ajax/business_loan.php",
             data: data,
@@ -1591,32 +1610,31 @@ $(document).on('submit', '#commodity_request', function(e) {
     $(document).on('input', '#amount_applied', function() {
         clearTimeout(typingTimer); // reset debounce
         const amount = $(this).val();
-        $(".amount_msg").text("Checking...");
-    
+        const loan_type = $('#business_loan input[name="loan_type"]').val();
+        isLoanDeserving = false;
+        fudLoanSummary();
+        $(".amount_msg").removeClass('text-success text-danger').text("Checking...");
+
         typingTimer = setTimeout(function() {
             $.ajax({
                 url: "../../ajax/getTotal_share.php",
                 type: "POST",
                 dataType: "json",
                 cache: false,
-                data: { amount },
+                data: { amount, loan_type },
                 success: function(response) {
-                    if (response.status === "success") {
-                        $(".amount_msg").text(response.message);
-                        isLoanDeserving = true;
-                    } else {
-                        $(".amount_msg").text(response.message);
-                        isLoanDeserving = false;
-                    }
+                    isLoanDeserving = response.status === "success";
+                    $(".amount_msg").toggleClass('text-success', isLoanDeserving).toggleClass('text-danger', !isLoanDeserving).text(response.message);
                 },
                 error: function(xhr, status, error) {
                     console.error("AJAX error:", error);
-                    $(".amount_msg").text("Network or server error. Please try again.");
+                    $(".amount_msg").addClass('text-danger').text("Network or server error. Please try again.");
                     isLoanDeserving = false;
                 }
             });
         }, 500); // 500ms debounce
     });
+    $(document).on('change', '#business_loan input[name="loan_repayment"]', fudLoanSummary);
     //===================================checking amount_applied=======================
     
     //===================================checking amount_applied=======================

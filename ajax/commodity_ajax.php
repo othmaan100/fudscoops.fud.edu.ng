@@ -20,6 +20,23 @@ $response = ['success' => false, 'message' => ''];
 try {
     // Get action from request
     $action = $_POST['action'] ?? '';
+
+    // Requests, decisions and supply moved to ajax/commodity_workflow.php (2026-10-13).
+    // Everything else here is supply setup: officers only (2 Secretary, 3 Treasurer, 4 Chairman); lookups need a login.
+    $level = isset($_SESSION['access_level']) ? (int) $_SESSION['access_level'] : -1;
+    if (in_array($action, ['add_items_request', 'process_counter_offer', 'process_disbursement'], true)) {
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'message' => 'This page has changed. Please reload it and try again.']);
+        exit;
+    }
+    $lookups = ['get_commodity_name', 'get_item_type', 'get_item_type_by_commodity', 'get_types', 'get_item', 'get_items',
+                'get_supply_items', 'get_batches', 'get_batch', 'get_batch_items'];
+    if ($level < 0 || (!in_array($action, $lookups, true) && !in_array($level, [2, 3, 4], true))) {
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'message' => $level < 0 ? 'Please log in again.' : 'You are not allowed to do this.']);
+        exit;
+    }
+
     $supply_id = $_POST['supply_id'] ?? '';
     $itesms_request = $_POST['data'] ?? '';
     
@@ -282,7 +299,7 @@ try {
         
             if ($itemId <= 0 || $addQty <= 0) {
                 $response= ['success' => false, 'message' => 'Invalid item or quantity.'];
-                exit;
+                break;
             }
         
             $result = $commodity->addQuantity($itemId, $addQty);

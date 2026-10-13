@@ -351,3 +351,126 @@
   .fud-hero h2 { font-size: 1.25rem; }
   .fud-step { font-size: 0.7rem; }
 }
+
+/* ---------- Loan application form (config/loans/loan_application_form.php) ---------- */
+.fud-apply .fud-hero h2 .mdi { opacity: 0.9; }
+.fud-apply .fud-notice { padding: 1rem 1.15rem; font-size: 0.92rem; }
+.fud-apply label { font-weight: 600; font-size: 0.82rem; color: var(--fud-text); }
+.fud-apply .form-control { border-radius: 8px; }
+.fud-apply .input-group-text { border-radius: 8px 0 0 8px; background: #f4f7fc; font-weight: 600; }
+
+.fud-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-right: 0.45rem;
+  border-radius: 50%;
+  background: rgba(77, 131, 255, 0.12);
+  color: #3b6fe8;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.fud-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem 1.25rem;
+  font-size: 0.92rem;
+  color: var(--fud-text);
+  font-weight: 600;
+}
+.fud-facts span {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--fud-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.fud-amount .form-control { font-size: 1.15rem; font-weight: 600; }
+
+.fud-tenors { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.fud-tenor { margin: 0; cursor: pointer; }
+.fud-tenor input { position: absolute; opacity: 0; pointer-events: none; }
+.fud-tenor span {
+  display: inline-block;
+  min-width: 104px;
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--fud-border);
+  border-radius: 10px;
+  text-align: center;
+  font-weight: 400;
+  color: var(--fud-muted);
+  background: #ffffff;
+  transition: all 0.15s ease;
+}
+.fud-tenor span strong { font-size: 1.05rem; color: var(--fud-text); }
+.fud-tenor:hover span { border-color: #4d83ff; }
+.fud-tenor input:checked + span {
+  border-color: #4d83ff;
+  background: #eef4ff;
+  color: #2a4fa8;
+  box-shadow: 0 0 0 3px rgba(77, 131, 255, 0.15);
+}
+.fud-tenor input:checked + span strong { color: #2a4fa8; }
+.fud-tenor input:focus-visible + span { outline: 2px solid #4d83ff; outline-offset: 2px; }
+
+/* Messages written by js/custom.js use grid offsets meant for the old full-width form */
+.fud-apply .guarantor .alert,
+.fud-apply .msg .alert { margin: 0.5rem 0 0; max-width: 100%; flex: none; width: auto; font-size: 0.85rem; }
+
+@media (min-width: 992px) {
+  .fud-summary { position: sticky; top: 85px; }
+}
+.fud-sum {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.55rem 1rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.9rem;
+}
+.fud-sum dt { font-weight: 400; color: var(--fud-muted); margin: 0; padding: 0; }
+.fud-sum dd { margin: 0; text-align: right; font-weight: 600; color: var(--fud-text); }
+.fud-sum dt:nth-last-child(4), .fud-sum dd:nth-last-child(3) { border-top: 1px dashed var(--fud-border); padding-top: 0.55rem; }
+#sumTotal { color: #3b6fe8; font-size: 1.05rem; }
+.fud-sum-note { font-size: 0.75rem; color: var(--fud-muted); margin-bottom: 1rem; }
+
+.fud-checks { list-style: none; padding: 0; margin: 0 0 1rem; font-size: 0.82rem; color: var(--fud-text); }
+.fud-checks li { position: relative; padding-left: 1.4rem; margin-bottom: 0.4rem; }
+.fud-checks li::before {
+  content: "\2713";
+  position: absolute;
+  left: 0;
+  color: #1b8f59;
+  font-weight: 700;
+}
+.fud-apply .custom-control-label { font-weight: 400; font-size: 0.82rem; }
+
+.fud-next { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--fud-border); font-size: 0.8rem; color: var(--fud-muted); }
+.fud-next-title { font-weight: 600; color: var(--fud-text); margin-bottom: 0.4rem; }
+.fud-next ol { padding-left: 1.1rem; margin: 0; }
+.fud-next li { margin-bottom: 0.2rem; }
+
+/* ---------- Commodity requests (config/classes/CommodityLoan.php) ---------- */
+.fud-tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+.fud-tabs a {
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--fud-border);
+  font-size: 0.8rem;
+  color: var(--fud-muted);
+  text-decoration: none;
+  background: #ffffff;
+}
+.fud-tabs a span { margin-left: 0.25rem; font-weight: 700; color: var(--fud-text); }
+.fud-tabs a:hover { border-color: #4d83ff; text-decoration: none; }
+.fud-tabs a.active { background: #4d83ff; border-color: #4d83ff; color: #ffffff; }
+.fud-tabs a.active span { color: #ffffff; }
+.fud-commodity h3 { font-size: 1.3rem; font-weight: 600; }
+.fud-commodity h3 .fud-pill { vertical-align: middle; font-size: 0.72rem; }
+.fud-qty { width: 90px; margin-left: auto; text-align: right; }
+.fud-decisions .fud-wide { grid-column: 1 / -1; text-align: left; font-weight: 400; font-style: italic; color: var(--fud-muted); margin-top: -0.35rem; }
+.fud-sum.fud-decisions dt:nth-last-child(4), .fud-sum.fud-decisions dd:nth-last-child(3) { border-top: 0; padding-top: 0; }

@@ -215,11 +215,33 @@ class View{
     //   group: ['Label', 'mdi-icon', 'collapse-id', [['Label', 'page.php'], ...]]
     // The current page is highlighted by js/template.js, which also opens its group.
 
+    // Menu links starting with '/' (member menu: '/R/...') are from the application folder. Add the
+    // folder's web path, so they work at the domain root (live) and in a sub-folder
+    // (local: http://localhost/fudscoops.fud.edu.ng/).
+    private static function appUrl($href)
+    {
+        static $base = null;
+        if ($base === null) {
+            $base = '';
+            $root = realpath(__DIR__ . '/../..');
+            $script = isset($_SERVER['SCRIPT_FILENAME']) ? realpath($_SERVER['SCRIPT_FILENAME']) : false;
+            $name = isset($_SERVER['SCRIPT_NAME']) ? $_SERVER['SCRIPT_NAME'] : '';
+            if ($root && $script && strpos($script, $root) === 0) {
+                // e.g. script R/soft_loan.php under the app folder, requested as /fudscoops.fud.edu.ng/R/soft_loan.php
+                $relative = str_replace('\\', '/', substr($script, strlen($root)));
+                if ($relative !== '' && substr($name, -strlen($relative)) === $relative) {
+                    $base = rtrim(substr($name, 0, -strlen($relative)), '/');
+                }
+            }
+        }
+        return (strlen($href) > 1 && $href[0] === '/' && $href[1] !== '/') ? $base . $href : $href;
+    }
+
     private function sidebarLink($item)
     {
         $label = htmlspecialchars($item[0]);
         $icon = $item[1];
-        $href = $item[2];
+        $href = self::appUrl($item[2]);
         $badge = isset($item[3]) ? '<span class="badge fud-badge">' . htmlspecialchars($item[3]) . '</span>' : '';
         $disabled = $href === '#' ? ' fud-disabled' : '';
         return '
@@ -238,7 +260,7 @@ class View{
         $links = '';
         foreach ($children as $child) {
             $links .= '
-                                <li class="nav-item"><a class="nav-link" href="' . $child[1] . '">' . htmlspecialchars($child[0]) . '</a></li>';
+                                <li class="nav-item"><a class="nav-link" href="' . self::appUrl($child[1]) . '">' . htmlspecialchars($child[0]) . '</a></li>';
         }
         return '
                     <li class="nav-item">
@@ -301,7 +323,7 @@ class View{
                     ['View Share Holders', 'share_holders_view.php'],
                 ]],
                 ['Loans', 'mdi-cash-multiple', 'loans.php'],
-                ['Commodity Disbursement', 'mdi-cart-outline', 'approved_commodity_Request.php'],
+                ['Commodity Requests', 'mdi-cart-outline', 'approved_commodity_Request.php'],
             ],
             'Operations' => [
                 ['Loan Deduction', 'mdi-file-document-box', 'loan_deduction.php'],
@@ -377,6 +399,7 @@ class View{
                 ]],
                 ['Loans', 'mdi-cash-multiple', 'loans.php'],
                 ['Commodity Requests', 'mdi-cart-outline', 'view_commodity_request.php'],
+                ['Commodity Deduction', 'mdi-cart-arrow-down', 'commodity_deduction.php'],
             ],
             'Uploads' => [
                 ['Uploads', 'mdi-cloud-upload', 'ui-uploads', [

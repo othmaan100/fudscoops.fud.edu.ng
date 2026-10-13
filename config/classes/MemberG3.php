@@ -2037,6 +2037,43 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
         }
     }
 
+    // Figures shown on the member's loan application page (R/business_loan.php, R/soft_loan.php);
+    // the same rules as loanEligibilityError, which still decides when the form is submitted.
+    public function loanApplicationContext($memberId, $loanTypeName)
+    {
+        require_once('Settings.php');
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("SELECT loan_type_id, loan_type_max_tenor FROM fudscoops_loan_type WHERE loan_type_name = :name AND is_deleted = 0");
+        $stmt->execute([':name' => $loanTypeName]);
+        $type = $stmt->fetch(PDO::FETCH_ASSOC);
+        $typeId = $type ? (int) $type['loan_type_id'] : 0;
+
+        $openLoan = null;
+        if ($typeId) {
+            foreach (self::liveLoans($con, 'member_id', $memberId) as $live) {
+                if ((int) $live['loan_type_id'] === $typeId) {
+                    $stmt = $con->prepare("SELECT * FROM fudscoops_loan WHERE loan_id = :id");
+                    $stmt->execute([':id' => $live['loan_id']]);
+                    $openLoan = $stmt->fetch(PDO::FETCH_ASSOC);
+                    $openLoan['stage'] = self::loanStageLabel($openLoan);
+                    $openLoan['balance'] = $live['amount'] - $live['repaid'];
+                    break;
+                }
+            }
+        }
+
+        return [
+            'type_id'   => $typeId,
+            'max_tenor' => $type ? (int) $type['loan_type_max_tenor'] : 0,
+            'savings'   => self::memberSavingsBalance($con, $memberId),
+            'multiple'  => (float) Settings::get('loan_max_savings_multiple', 2),
+            'limit'     => $this->loanLimit($memberId),
+            'rate'      => self::loanInterestRate(),
+            'open_loan' => $openLoan,
+            'is_target' => (bool) $this->isTargetSaving($memberId),
+        ];
+    }
+
     public function loanLimit($memberId, $excludeLoanId = 0)
     {
         require_once('Settings.php');

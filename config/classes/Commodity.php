@@ -743,7 +743,7 @@ public static function getApplicationItems($application_id) {
                                         fudscoops_commodity_supply AS cs
                                         ON csi.commodity_supply_id = cs.commodity_name_id
                                     WHERE
-                                        ai.application_id = 5
+                                        ai.application_id = :application_id
                                         AND ai.commodity_supply_id = cs.commodity_name_id  -- ✅ Enforce supply consistency
                                     ORDER BY ci.commodity_item";
 
@@ -1995,12 +1995,14 @@ function saveCommoditySupplyItems($commodity_name_id, $items) {
     $commodity_name_id = $commodity_name_id; // Assuming batch_id is passed in the request
 
     foreach ($items as $item) {
-        $stmt = $this->conn->prepare("INSERT INTO fudscoops_commodity_supply_items (commodity_supply_id, item_id, unit_price, allocated_quantity) 
-                               VALUES (?, ?, ?, ?)");
+        // remaining_quantity starts at the full allocation (it was left at 0, so members could not request the items)
+        $stmt = $this->conn->prepare("INSERT INTO fudscoops_commodity_supply_items (commodity_supply_id, item_id, unit_price, allocated_quantity, remaining_quantity)
+                               VALUES (?, ?, ?, ?, ?)");
         $stmt->execute([
             $commodity_name_id,
             $item->itemId,
             $item->unitPrice,
+            $item->quantity,
             $item->quantity
         ]);
     }

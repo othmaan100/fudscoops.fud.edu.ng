@@ -80,6 +80,7 @@ class Dashboard{
                     ['Share transfers to approve', $c("SELECT COUNT(*) FROM fudscoops_shares_transfer WHERE share_transfer_is_deleted = 0 AND is_accepted = 1 AND share_transfer_status = 0 AND secretary_endorsement = 1 AND chairman_approval = 0"), 'mdi-swap-horizontal', 'manage_share_transfer.php'],
                     ['Share conversions to approve', $c("SELECT COUNT(*) FROM fudscoops_shares_conversion WHERE share_conversion_is_deleted = 0 AND conversion_status = 0 AND chairman_approval = 0"), 'mdi-sync', 'manage_share_conversion.php'],
                     ['Loans to authorize', $c("SELECT COUNT(*) FROM fudscoops_loan WHERE loan_status = 'Recommended' AND chairman_approval = 0"), 'mdi-cash-multiple', 'loans.php'],
+                    ['Commodity requests to authorize', $c("SELECT COUNT(*) FROM fudscoops_commodity_loan_applications WHERE status = 'recommended'"), 'mdi-cart-outline', 'approved_commodity_Request.php?stage=recommended'],
                 ];
             case 'treasurer':
                 return [
@@ -92,7 +93,8 @@ class Dashboard{
                     ['Share conversions to complete', $c("SELECT COUNT(*) FROM fudscoops_shares_conversion WHERE share_conversion_is_deleted = 0 AND chairman_approval = 1 AND conversion_status = 0"), 'mdi-sync', 'manage_share_conversion.php'],
                     ['Loan applications to review', $c("SELECT COUNT(*) FROM fudscoops_loan WHERE guarantor_status = 1 AND loan_status = 'pending'"), 'mdi-cash-multiple', 'loans.php'],
                     ['Loans to pay out', $c("SELECT COUNT(*) FROM fudscoops_loan WHERE loan_status = 'Approve' AND chairman_approval = 1"), 'mdi-bank-transfer', 'loans.php'],
-                    ['Commodity applications pending', $c("SELECT COUNT(*) FROM fudscoops_commodity_loan_applications WHERE status = 'pending'"), 'mdi-cart-outline', 'view_commodity_request.php'],
+                    ['Commodity requests to review', $c("SELECT COUNT(*) FROM fudscoops_commodity_loan_applications WHERE status = 'pending'"), 'mdi-cart-outline', 'view_commodity_request.php?stage=pending'],
+                    ['Commodity to supply', $c("SELECT COUNT(*) FROM fudscoops_commodity_loan_applications WHERE status = 'authorized'"), 'mdi-truck', 'view_commodity_request.php?stage=authorized'],
                 ];
             case 'secretary':
                 return [
@@ -100,7 +102,7 @@ class Dashboard{
                     ['Share transfers to endorse', $c("SELECT COUNT(*) FROM fudscoops_shares_transfer WHERE share_transfer_is_deleted = 0 AND is_accepted = 1 AND share_transfer_status = 0 AND secretary_endorsement = 0"), 'mdi-swap-horizontal', 'manage_share_transfer.php'],
                     ['Membership applications in progress', $c("SELECT COUNT(*) FROM fudscoops_member WHERE NOT (treasurer_approval = 1 AND chairman_approval = 1) AND is_deleted = 0"), 'mdi-account-plus', 'member_list.php'],
                     ['Loan applications in progress', $c("SELECT COUNT(*) FROM fudscoops_loan WHERE loan_status IN ('pending', 'Recommended', 'Approve') AND guarantor_status <> -1"), 'mdi-cash-multiple', 'loans.php'],
-                    ['Commodity applications pending', $c("SELECT COUNT(*) FROM fudscoops_commodity_loan_applications WHERE status = 'pending'"), 'mdi-cart-outline', 'view_commodity_request.php'],
+                    ['Commodity requests in progress', $c("SELECT COUNT(*) FROM fudscoops_commodity_loan_applications WHERE status IN ('pending', 'recommended', 'authorized')"), 'mdi-cart-outline', 'view_commodity_request.php'],
                 ];
         }
         return [];
@@ -155,6 +157,25 @@ class Dashboard{
     }
 
     // Requests the member is waiting on
+    // Figures for the member's savings pages (R/savings/*.php, R/complete_withdrawal.php)
+    public function memberSavingsInfo($memberId, $employeeId)
+    {
+        $target = $this->con->prepare("SELECT savings_amount, saving_period, withdraw_period, date_saved, guarantor_status, chairman_approval
+                                       FROM fudscoops_Target_saving WHERE member_id = :m AND Target_saving_is_deleted = 0
+                                       ORDER BY target_saving_id DESC LIMIT 1");
+        $target->execute([':m' => $memberId]);
+        return [
+            'monthly' => (float) $this->value("SELECT proposed_monthly_savings FROM fudscoops_member WHERE member_id = :m", [':m' => $memberId]),
+            'pending_update' => $this->value("SELECT u.savings_update_amount FROM fudscoops_update_savings u
+                                              WHERE u.employee_id = :e AND u.is_treasurer_approved = 0 AND u.is_secretary_approved IN (0, 1)
+                                              ORDER BY u.id DESC LIMIT 1", [':e' => $employeeId]),
+            'pending_withdrawal' => $this->value("SELECT proposed_withrawal_amount FROM fudscoops_withrawals WHERE member_id = :m AND chairman_approval = 0
+                                                  AND COALESCE(withrawals_is_deleted, 0) = 0 ORDER BY withrawals_id DESC LIMIT 1", [':m' => $memberId]),
+            'pending_complete' => (int) $this->value("SELECT COUNT(*) FROM fudscoops_complete_withrawal WHERE employee_id = :e AND chairman_approval = 0 AND COALESCE(complete_withrawal_is_deleted, 0) = 0", [':e' => $employeeId]) > 0,
+            'target' => $target->fetch(PDO::FETCH_ASSOC) ?: null,
+        ];
+    }
+
     public function memberPending($memberId)
     {
         $items = [];
