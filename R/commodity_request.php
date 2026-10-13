@@ -95,7 +95,7 @@
                     <dl class="fud-sum">
                       <dt>Items</dt><dd id="sumAmount">–</dd>
                       <dt>Interest (<?php echo rtrim(rtrim(number_format($rate, 2), '0'), '.'); ?>%)</dt><dd id="sumInterest">–</dd>
-                      <dt>Total to repay</dt><dd id="sumTotal">–</dd>
+                      <dt class="fud-total">Total to repay</dt><dd class="fud-total" id="sumTotal">–</dd>
                       <dt>Monthly deduction</dt><dd id="sumMonthly">–</dd>
                     </dl>
                     <p class="fud-sum-note">An estimate. The Treasurer may adjust quantities and months; the Chairman then authorizes the request.</p>

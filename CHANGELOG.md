@@ -72,6 +72,39 @@ and `fudscoops_shares_conversion` (`conversion_status`, `chairman_approval`): 0 
 
 ## 2026-10-13
 
+### Member savings pages redesigned
+
+Update Savings, Withdraw Savings, Target Savings Request and Complete Withdrawal now match the loan
+and commodity forms. Each page has:
+- the member's savings balance and current monthly savings at the top;
+- a notice when a request is already awaiting approval (the form is hidden for withdrawals);
+- numbered sections and a confirm panel;
+- "what happens next".
+
+No database change.
+
+Fixed at the same time:
+- **Target Savings:** the server replies in JSON but the page only accepted `1`, so every saved
+  application showed "Error! Contact system admin" (one member's application was saved twice).
+  The page now reads the reply. Its undertaking text described a bank withdrawal; it now describes
+  the savings plan. The months fields enforce the minimum for the member's grade.
+- **Update Savings and Complete Withdrawal:** the pages had no message area, so success and error
+  messages never appeared. Update Savings said "Withdrawal request submitted" on success.
+- **Withdraw Savings:** any refusal was reported as "You already have a pending withdrawal".
+  The page now shows the server's reason. The amount is limited to the balance, and the minimum
+  monthly savings shown comes from Savings Settings (it was fixed at ₦2,000).
+- **Account numbers:** both withdrawal forms accept exactly 10 digits and keep leading zeros.
+- **Access check:** the pages now stop when the user is not a logged-in member (before, they only
+  redirected and carried on running).
+
+| File | Change |
+|---|---|
+| `R/savings/update_savings.php`, `R/savings/savings_withdrawal.php`, `R/savings/target_savings_request.php`, `R/complete_withdrawal.php` | Redesigned |
+| `config/classes/Dashboard.php` | New `memberSavingsInfo()` (monthly savings and pending requests) |
+| `js/custom.js` | New `fudMessage()`; messages and replies for the four forms |
+| `css/dashboard.css` | Summary total line uses a class (`.fud-total`) |
+| `config/loans/loan_application_form.php`, `R/commodity_request.php` | Use `.fud-total` |
+
 ### Member menu links work when the portal is in a sub-folder
 
 The member menu links (`/R/...`) start from the web root. On local XAMPP the portal is at

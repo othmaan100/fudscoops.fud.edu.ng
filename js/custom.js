@@ -15,6 +15,11 @@ function fudServerMessage(msg, fallback) {
     var text = $.trim(String(msg === undefined || msg === null ? '' : msg));
     return (text === '' || /^-?\d+$/.test(text) || text.charAt(0) === '<') ? fallback : text;
 }
+// Plain message in the page's .msg area (type: success, danger, warning, primary)
+function fudMessage(type, text) {
+    $('.msg').html('<div class="alert alert-' + type + ' mt-3 mb-0"></div>');
+    $('.msg .alert').text(text);
+}
 function fudShowError(msg, fallback) {
     $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary"></div>');
     $('.msg .alert').text(fudServerMessage(msg, fallback));
@@ -1254,30 +1259,29 @@ $(document).on('submit', '#commodity_request', function(e) {
     
         var withdrawalAmount = $('#withdrawal_amount').val();
     
-        if (confirm(`Are you sure you want to request a withdrawal of ${withdrawalAmount}?`)) {
-            
+        if (confirm("Withdraw ₦" + Number(withdrawalAmount).toLocaleString() + " from your savings?")) {
+
             var data = $(this).serialize();
-            
-            $('.msg').html('<div class="alert offset-md-4 col-4  alert-primary"><i> Saving please wait...</i></div>');
-    
+
+            fudMessage('primary', 'Sending your request, please wait...');
+
             $.ajax({
                 url: "../../ajax/savingswithdrawal.php",
                 data: data,
                 type: "POST",
                 success: function (msg) {
                 if (msg == -2) {
-                    $('.msg').html('<div class="alert offset-md-2 col-6 alert-warning text-primary">You already have a pending savings withdrawal awaiting approval.</div>');
-                } 
+                    fudMessage('warning', 'You already have a savings withdrawal awaiting approval.');
+                }
                 else if (msg == 1) {
-                        $('.msg').html('<div class="alert offset-md-2 col-6 msg alert-success text-primary"> Withdrawal request submitted successfully.</div>');
-                        
-                        // Delay redirection to allow the success message to be seen
-                      //  setTimeout(function () { 
-                      //      window.location.href = '../'; // Redirects to one folder up
-                      //  }, 2000); // 2000 milliseconds = 2 seconds, adjust as needed
+                        fudMessage('success', 'Withdrawal request submitted. It is now awaiting approval.');
+                        setTimeout(function () { location.reload(); }, 1500);
                     } else {
-                        $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary">You already have a pending savings withdrawal awaiting approval.</div>');
+                        fudMessage('danger', fudServerMessage(msg, 'Could not submit the withdrawal request. Please try again.'));
                     }
+                },
+                error: function () {
+                    fudMessage('danger', 'Network error. Please try again.');
                 }
 
                 
@@ -1290,9 +1294,6 @@ $(document).on('submit', '#commodity_request', function(e) {
 //                    }
 //                }
             });
-        } else {
-            // User clicked Cancel, do nothing
-            $('.msg').html('<div class="alert offset-md-2 col-6 alert-warning text-primary"> Withdrawal request cancelled.</div>');
         }
     });
     
@@ -1332,31 +1333,30 @@ $(document).on('submit', '#commodity_request', function(e) {
         $(".hidden-message").show();
         
         var data = $(this).serialize();
-        console.log(data)
-        // alert(data)
-        $('.msg').html('<div class="alert offset-md-4 col-4  alert-primary"><i> Saving please wait...</i></div>')
-        result = confirm("Are you sure to request for monthly savings update?")
+        result = confirm("Change your monthly savings to ₦" + Number($('#savings_amount').val()).toLocaleString() + "?")
         if (!result) {
+            $(".hidden-message").hide();
             return
         }
+        fudMessage('primary', 'Sending your request, please wait...');
         $.ajax({
             url: "../../ajax/update_savings_amount.php",
             data: data,
             type: "POST",
-            // cache:false,
             success: function(msg){
-                // alert(msg);
+                $(".hidden-message").hide();
                 if(msg ==1){
-                    alert("Your monthly savings update request sent successuflly")
-                    $('.msg').html('<div class="alert offset-md-2 col-6 msg alert-success text-primary"> Withdrawal request submitted successfully.</div>');
-                     setTimeout((function(){ window.location = '../index.php'  }), 100);              
-
+                    fudMessage('success', 'Your request to change your monthly savings has been sent for approval.');
+                    setTimeout((function(){ window.location = '../index.php'  }), 1500);
                 }else if(msg == -2){
-                    $('.msg').html('<div class="alert msg offset-md-2 col-6  alert-danger text-primary"> The amount is below the minimum monthly savings. Please enter a higher amount.</div>');
+                    fudMessage('danger', 'The amount is below the minimum monthly savings. Please enter a higher amount.');
                 }else{
-                    $('.msg').html('<div class="alert msg offset-md-2 col-6  alert-danger text-primary"> Error! Contact system admin</div>');
+                    fudMessage('danger', fudServerMessage(msg, 'Could not send the request. Please try again.'));
                 }
-
+            },
+            error: function () {
+                $(".hidden-message").hide();
+                fudMessage('danger', 'Network error. Please try again.');
             }
         });
     });
@@ -1441,30 +1441,25 @@ $(document).on('submit', '#commodity_request', function(e) {
         // var rel = $(this).attr('rel');
         // var type = $('#type').val()
         var data = $(this).serialize();
-        console.log(data)
-        // alert(data)
-        $('.msg').html('<div class="alert offset-md-4 col-4  alert-primary"><i> Saving please wait...</i></div>')
-        result = confirm("Are you sure to request for complete withdrawal?")
+        result = confirm("Withdraw ALL your savings? This cannot be undone once approved.")
         if (!result) {
             return
         }
+        fudMessage('primary', 'Sending your request, please wait...');
         $.ajax({
             url: "../../ajax/complete_withdrawal.php",
             data: data,
             type: "POST",
-            // cache:false,
             success: function(msg){
-                 //alert(msg);
                 if(msg == 1){
-                    alert("Complete withdrawal request sent successfully")
-                    $('.msg').html('<div class="alert offset-md-2 col-6 msg alert-success text-primary"> Withdrawal request submitted successfully.</div>');
-                     setTimeout((function(){ window.location = 'index.php'  }), 100);              
-
+                    fudMessage('success', 'Complete withdrawal request submitted. It is now awaiting approval.');
+                    setTimeout((function(){ window.location = 'index.php'  }), 1500);
                 }else{
-                     alert(msg)
-                    $('.msg').html('<div class="alert msg offset-md-2 col-6  alert-danger text-primary"> Error! Contact system admin</div>');
+                    fudMessage('danger', fudServerMessage(msg, 'Could not submit the request. Please try again.'));
                 }
-
+            },
+            error: function () {
+                fudMessage('danger', 'Network error. Please try again.');
             }
         });
     });
@@ -1568,35 +1563,39 @@ $(document).on('submit', '#commodity_request', function(e) {
 
     // Validation logic
     if (grade === "SP" && (periodSave < 24 || periodWithdraw < 24)) {
-        alert("For Senior Staff (SP), both Period to Save and Period to Withdraw must be at least 24 months.");
+        fudMessage('warning', "For Senior Staff (SP), both Period to Save and Period to Withdraw must be at least 24 months.");
         return false; // Prevent form submission
     } else if (grade === "JP" && (periodSave < 12 || periodWithdraw < 12)) {
-        alert("For Junior Staff (JP), both Period to Save and Period to Withdraw must be at least 12 months.");
+        fudMessage('warning', "For Junior Staff (JP), both Period to Save and Period to Withdraw must be at least 12 months.");
         return false; // Prevent form submission
-    } else {
-        console.log("Validation passed. Submitting form...");
     }
 
-    $('.msg').html('<div class="alert offset-md-4 col-4 alert-primary"><i> Applying please wait...</i></div>');
-    result = confirm(`Are you sure you want to apply for this N${amount} Target Saving?`);
+    result = confirm("Apply to save ₦" + amount.toLocaleString() + " over " + periodSave + " months?");
 
     if (!result) {
         return;
     }
+    fudMessage('primary', 'Sending your application, please wait...');
 
+    // The server replies with JSON: {"status": 1 or -1, "message": "..."}
     $.ajax({
         url: "../../ajax/targetsavingsrequest.php",
         data: data,
         type: "POST",
         success: function(msg) {
-            console.log(msg);
-            if (msg == 1) {
-                alert("Application request sent successfully");
-                $('.msg').html('<div class="alert offset-md-2 col-6 msg alert-success text-primary">Application request submitted successfully.</div>');
-                setTimeout(function() { window.location = 'index.php'; }, 100);
-            } else {
-                $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary">Error! Contact system admin</div>');
+            var reply = msg;
+            if (typeof reply === 'string') {
+                try { reply = JSON.parse(reply); } catch (err) { reply = { status: msg == 1 ? 1 : -1, message: msg }; }
             }
+            if (reply && reply.status == 1) {
+                fudMessage('success', 'Application submitted. Your referee must now accept it.');
+                setTimeout(function() { window.location = '../index.php'; }, 1500);
+            } else {
+                fudMessage('danger', fudServerMessage(reply && reply.message, 'Could not submit the application. Please try again.'));
+            }
+        },
+        error: function () {
+            fudMessage('danger', 'Network error. Please try again.');
         }
     });
 });

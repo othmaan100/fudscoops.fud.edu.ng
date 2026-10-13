@@ -1,152 +1,141 @@
-<?php 
-        require_once('../../config/classes/View.php');
-        require_once('../../config/classes/User.php');
-        require_once('../../config/classes/MemberG1.php');
-        // require_once('../config/classes/Putme.php');
-        $view = new View();
-        $user = new User();
-         $member = new MemberG1();
-        // $putme = new Putme();
-
-        $user->is_authenticated('../../auth/');
-        $user->isStaff('../../auth/logout.php');
-        //$payment = $putme->getPaymentInfoArray($_SESSION['username']);
-        $currentsavings= $member-> getCurrentSavingsAmount($_SESSION['username']);
-         
-        echo $view->subHeader('../../');
-    ?>
-    <!-- partial:partials/_navbar.html -->
-    <?php  echo $view->subPartialNav('../../')?>
-    <!-- partial -->
-    <div class="container-fluid page-body-wrapper">
-      <!-- partial:partials/_sidebar.html -->
-      <?php  echo $view->staffSideNav()?>
-      
-      <!-- partial -->
-    <?php  
+<?php
+    // Withdraw savings (member). Submitted by js/custom.js (#savingswithdrawal) to ajax/savingswithdrawal.php
+    require_once('../../config/classes/View.php');
+    require_once('../../config/classes/User.php');
+    require_once('../../config/classes/MemberG1.php');
+    require_once('../../config/classes/SavingsG1.php');
+    require_once('../../config/classes/Dashboard.php');
+    $view = new View();
     $user = new User();
-    $bankService = new MemberG1(); 
+    if (!User::is_authenticated('../../auth/') || !User::isStaff('../../auth/logout.php')) {
+        exit();
+    }
     $member = new MemberG1();
-    $name = new User();
-    $staff_info =  $user->getStaffInfoArray($_SESSION['username']);
-    $banks = $bankService->getBanks();
-    $employ_id =  $user->getEmployeeId($staff_info['sp_no']);
-    $member_id =  $member->getMemberId($employ_id );
-    $fullname = $name->getFullname($staff_info['sp_no']);
-    //print($fullname);
-   // print($employ_id);
-   // print($member_id);
-    ?>  
-      
+    $banks = $member->getBanks();
+    $employeeId = $user->getEmployeeId($_SESSION['username']);
+    $memberId = $user->getMemberId($employeeId);
+    $balance = (float) $member->getCurrentSavingsAmount($_SESSION['username']);
+    $info = (new Dashboard())->memberSavingsInfo($memberId, $employeeId);
+    $minMonthlySavings = SavingsG1::getMinMonthlySavings();
+    $h = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
+
+    echo $view->subHeader('../../');
+?>
+    <?php echo $view->subPartialNav('../../'); ?>
+    <div class="container-fluid page-body-wrapper">
+      <?php echo $view->staffSideNav(); ?>
       <div class="main-panel">
-        <div class="content-wrapper">
-          
-          <div class="row">
-            <div class="col-md-12 grid-margin">
-              <div class="d-flex1 justify-content-between flex-wra1p">
-                <div class="d-flex1 align-items-end1 card flex-wrap1">
+        <div class="content-wrapper fud-dash fud-apply">
 
-                   <div class="container mt-5">
-                               
-                        <h1 class="text-center">FUD STAFF COOPERATIVE SOCIETY LIMITED</h1>
-                        <h2 class="text-center">[An Interest Free Thrift and Loan Society]</h2>
-                        <h3 class="text-center mb-4">SAVINGS WITHDRAWAL</h3>
-                        
-                          <form id="savingswithdrawal">
-                             <input type="text" class="form-control" id="staff_no" name="staff_no" value="<?php echo $fullname  ?>" readonly>
-                                <div class="form-group d-flex align-items-center">
-                                    <h2 class="text-primary mb-0 mr-3">Total Savings:</h2>
-                                    <h3 class="text-success font-weight-bold mb-0">
-                                        ₦<?php echo number_format($currentsavings, 2); ?>
-                                    </h3>
-                                </div>
+          <div class="fud-hero">
+            <div class="fud-hero-date">FUD Staff Cooperative Society Limited</div>
+            <h2><i class="mdi mdi-bank-transfer-out"></i> Withdraw Savings</h2>
+            <p>Withdraw part of your savings into your bank account.</p>
+          </div>
 
-                            <div class="form-group row">
-                                <div class="col-md-6">
-                                    <label for="bank">Bank*:</label>
-                                    <select class="form-control" id="bank" name="bank_id" required>
-                                        <option value="">Select a Bank</option>
-                                        <?php
-                                            foreach ($banks as $bank) {
-                                            echo '<option value="' . $bank['name'] . '">' . $bank['name'] . '</option>';
-                                            }
-                                        ?>
-                                    </select>
-                                </div>
-                            </div>
-                        <div class="form-group row">
-                            <div class="col-md-6">
-                                <label for="acct_no">Account Name*:</label>
-                                <input 
-                                    type="text" 
-                                    class="form-control" 
-                                    id="acct_name" 
-                                    name="acct_name" 
-                                    placeholder="Enter account Name" 
-                                    
-                                    title="Please enter up to 10 digits only" 
-                                    required
-                                />
-                            </div>
-                        </div>
-                        <div class="form-group row">
-                            <div class="col-md-6">
-                                <label for="acct_no">Account Number*:</label>
-                                <input 
-                                    type="number" 
-                                    class="form-control" 
-                                    id="acct_no" 
-                                    name="acct_no" 
-                                    placeholder="Enter account number" 
-                                    maxlength="10"
-                                    pattern="\d{1,10}" 
-                                    title="Please enter up to 10 digits only" 
-                                    required
-                                />
-                            </div>
-                        </div>
-                        
-                        <div class="form-group row">
-                            <div class="col-md-6">
-                                <label for="withdrawal_amount">Amount*:</label>
-                                <input 
-                                    type="number" 
-                                    class="form-control" 
-                                    id="withdrawal_amount" 
-                                    name="withdrawal_amount" 
-                                    placeholder="Enter Amount to Withdraw"
-                                    style="width: 100%;" 
-                                    min="1" 
-                                    required
-                                />
-                            </div>
-                        </div>
-                        <input type="hidden" name="member_id" id="member_id" value="<?php echo $member_id; ?>">
-                           <div class="form-group">
-                                <label>Applicant’s Request:</label>
-                                <div class="custom-control custom-checkbox mb-3">
-                                    <input type="checkbox" class="custom-control-input" id="savingsUpdate" name="undertaking" required>
-                                    <label class="custom-control-label" for="savingsUpdate">
-                                        I hereby authorize the withdrawal of the stated amount from my savings and transfer it to the bank account specified above.
-                                    </label>
-                                </div>
-                            </div>
+          <div class="fud-stats">
+            <div class="fud-stat"><div class="fud-stat-icon fud-green"><i class="mdi mdi-safe"></i></div>
+              <div><div class="fud-stat-label">Savings balance</div><div class="fud-stat-value">₦<?php echo number_format($balance, 2); ?></div></div></div>
+            <div class="fud-stat"><div class="fud-stat-icon fud-blue"><i class="mdi mdi-calendar-clock"></i></div>
+              <div><div class="fud-stat-label">Monthly savings</div><div class="fud-stat-value">₦<?php echo number_format($info['monthly']); ?></div></div></div>
+          </div>
 
-                            <button type="submit" id = "savingWithdrwal" class="btn btn-primary">Submit</button>
+          <?php if ($info['pending_withdrawal']) { ?>
+            <div class="fud-notice"><i class="mdi mdi-clock-outline"></i>
+              <span>Your withdrawal request of ₦<?php echo number_format((float) $info['pending_withdrawal']); ?> is awaiting approval.
+                You can make another request once it has been decided.</span>
+              <a href="../index.php">Dashboard <i class="mdi mdi-arrow-right"></i></a></div>
+          <?php } else { ?>
 
-                        </form>
-                                <div class="mt-3">
-                                    <p><strong>NB:</strong> Savings account should always be left with an amount not less than the mandatory N2,000 monthly savings.</p>
-                                </div>
-                        <div class="msg"></div> 
+          <form id="savingswithdrawal" autocomplete="off">
+            <input type="hidden" name="member_id" id="member_id" value="<?php echo (int) $memberId; ?>">
+            <div class="row">
+              <div class="col-lg-8">
+                <div class="fud-section">
+                  <div class="fud-section-head"><h5><span class="fud-num">1</span> Amount</h5></div>
+                  <div class="fud-section-body">
+                    <label for="withdrawal_amount">Amount to withdraw</label>
+                    <div class="input-group fud-amount">
+                      <div class="input-group-prepend"><span class="input-group-text">₦</span></div>
+                      <input type="number" class="form-control" id="withdrawal_amount" name="withdrawal_amount" min="1"
+                             max="<?php echo max(0, floor($balance)); ?>" step="1" placeholder="0" required>
                     </div>
-               
+                    <small class="d-block mt-2 text-muted">Up to ₦<?php echo number_format($balance, 2); ?>.</small>
+                  </div>
+                </div>
+
+                <div class="fud-section">
+                  <div class="fud-section-head"><h5><span class="fud-num">2</span> Pay into</h5>
+                    <small class="text-muted">Your own bank account</small></div>
+                  <div class="fud-section-body">
+                    <div class="form-row">
+                      <div class="form-group col-md-6">
+                        <label for="bank">Bank</label>
+                        <select class="form-control" id="bank" name="bank_id" required>
+                          <option value="">Select a bank</option>
+                          <?php foreach ($banks as $bank) { ?>
+                            <option value="<?php echo $h($bank['name']); ?>"><?php echo $h($bank['name']); ?></option>
+                          <?php } ?>
+                        </select>
+                      </div>
+                      <div class="form-group col-md-6">
+                        <label for="acct_no">Account number</label>
+                        <input type="text" inputmode="numeric" class="form-control" id="acct_no" name="acct_no" placeholder="10 digits"
+                               maxlength="10" pattern="\d{10}" title="Enter the 10-digit account number" required>
+                      </div>
+                    </div>
+                    <div class="form-group mb-0">
+                      <label for="acct_name">Account name</label>
+                      <input type="text" class="form-control" id="acct_name" name="acct_name" placeholder="As it appears on the account" required>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="col-lg-4">
+                <div class="fud-section fud-summary">
+                  <div class="fud-section-head"><h5><i class="mdi mdi-file-document-box"></i> Confirm</h5></div>
+                  <div class="fud-section-body">
+                    <dl class="fud-sum">
+                      <dt>Withdraw</dt><dd id="sumAmount">–</dd>
+                      <dt>Balance after</dt><dd id="sumAfter">₦<?php echo number_format($balance, 2); ?></dd>
+                    </dl>
+                    <ul class="fud-checks">
+                      <li>Keep saving at least ₦<?php echo number_format($minMonthlySavings); ?> a month.</li>
+                      <li>One withdrawal request at a time.</li>
+                    </ul>
+                    <div class="custom-control custom-checkbox mb-3">
+                      <input type="checkbox" class="custom-control-input" id="savingsUpdate" name="undertaking" required>
+                      <label class="custom-control-label" for="savingsUpdate">I authorize the withdrawal of this amount from my savings into the bank account above.</label>
+                    </div>
+                    <div class="msg"></div>
+                    <button type="submit" id="savingWithdrwal" class="btn btn-primary btn-block btn-lg"><i class="mdi mdi-send"></i> Submit request</button>
+                    <div class="fud-next">
+                      <div class="fud-next-title">What happens next</div>
+                      <ol><li>The Treasurer processes the request</li><li>The Chairman approves it</li><li>The money is paid into your account</li></ol>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>   
+          </form>
+          <?php } ?>
+
         </div>
-        <!-- content-wrapper ends -->
-        
-        <?php 
-          echo $view->subFooter('../../');
-        ?>
+        <?php echo $view->subFooter('../../'); ?>
+
+<script>
+(function () {
+    var input = document.getElementById('withdrawal_amount');
+    if (!input) { return; }
+    var balance = <?php echo json_encode($balance); ?>;
+    var money = function (v) { return '₦' + v.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+    input.addEventListener('input', function () {
+        var v = parseFloat(input.value) || 0;
+        document.getElementById('sumAmount').textContent = v ? money(v) : '–';
+        var after = document.getElementById('sumAfter');
+        after.textContent = money(balance - v);
+        after.className = balance - v < 0 ? 'text-danger' : '';
+    });
+})();
+</script>

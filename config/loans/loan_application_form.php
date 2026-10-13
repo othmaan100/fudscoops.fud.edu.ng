@@ -212,7 +212,7 @@ echo $view->subHeader('../');
                     <dl class="fud-sum">
                       <dt>Amount</dt><dd id="sumAmount">–</dd>
                       <dt>Interest (<?php echo $pct; ?>%)</dt><dd id="sumInterest">–</dd>
-                      <dt>Total to repay</dt><dd id="sumTotal">–</dd>
+                      <dt class="fud-total">Total to repay</dt><dd class="fud-total" id="sumTotal">–</dd>
                       <dt>Monthly deduction</dt><dd id="sumMonthly">–</dd>
                     </dl>
                     <p class="fud-sum-note">An estimate. The Treasurer fixes the final amount and period; the Chairman then authorizes it.</p>

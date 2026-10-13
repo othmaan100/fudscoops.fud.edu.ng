@@ -434,7 +434,7 @@
 }
 .fud-sum dt { font-weight: 400; color: var(--fud-muted); margin: 0; padding: 0; }
 .fud-sum dd { margin: 0; text-align: right; font-weight: 600; color: var(--fud-text); }
-.fud-sum dt:nth-last-child(4), .fud-sum dd:nth-last-child(3) { border-top: 1px dashed var(--fud-border); padding-top: 0.55rem; }
+.fud-sum .fud-total { border-top: 1px dashed var(--fud-border); padding-top: 0.55rem; }
 #sumTotal { color: #3b6fe8; font-size: 1.05rem; }
 .fud-sum-note { font-size: 0.75rem; color: var(--fud-muted); margin-bottom: 1rem; }
 
@@ -473,4 +473,3 @@
 .fud-commodity h3 .fud-pill { vertical-align: middle; font-size: 0.72rem; }
 .fud-qty { width: 90px; margin-left: auto; text-align: right; }
 .fud-decisions .fud-wide { grid-column: 1 / -1; text-align: left; font-weight: 400; font-style: italic; color: var(--fud-muted); margin-top: -0.35rem; }
-.fud-sum.fud-decisions dt:nth-last-child(4), .fud-sum.fud-decisions dd:nth-last-child(3) { border-top: 0; padding-top: 0; }
