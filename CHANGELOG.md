@@ -65,6 +65,22 @@ and `fudscoops_shares_conversion` (`conversion_status`, `chairman_approval`): 0 
 
 ---
 
+## 2026-10-13
+
+### Database connection works on both the live server and local XAMPP
+
+- The deploy workflow uploaded the local `config/classes/DB.php` (login `root`, no password) to
+  the live server, so the live site could not connect and login stopped at "Please wait...".
+- `config/classes/DB.php` now tries database logins in order and uses the first that connects:
+  `config/db_config.php` if present, then the live login (`fuded535_hrms`), then local XAMPP
+  (`root`). The same file can be deployed. Connection errors are written to the error log instead
+  of being shown on the page.
+- If the live login is different, create `config/db_config.php` on the server only:
+  `<?php return ['host' => 'localhost', 'dbname' => '...', 'username' => '...', 'password' => '...'];`
+  It is in `.gitignore` and excluded from the deploy workflow.
+
+Files: `config/classes/DB.php`, `.gitignore`, `.github/workflows/deploy.yml`. Database: none.
+
 ## 2026-10-08
 
 ### Dashboards redesigned

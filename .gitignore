@@ -1,0 +1,3 @@
+
+# Server-specific database login (see config/classes/DB.php)
+config/db_config.php
