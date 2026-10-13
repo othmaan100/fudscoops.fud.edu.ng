@@ -76,7 +76,7 @@ $(document).ready(function () {
                 }
                 else if(msg== 3){
                     $('.msg').html('<div class="alert msg alert-success text-primary"> Login in please wait...</div>')
-                    setTimeout((function(){ window.location = './Treasurer /'  }), 100);                        
+                    setTimeout((function(){ window.location = './Treasurer/'  }), 100);                        
                 }
                 else if(msg==1){
                     $('.msg').html('<div class="alert alert-success text-primary"> Login in please wait...</div>')
@@ -826,7 +826,7 @@ $(document).on('submit', '.sav-withdrawal-decision-form', function(e){
                 // Success message
                 $('.msg').html('<div class="alert offset-md-2 col-6 msg alert-success text-primary">Member Saving Withdarwal Decision successfully Saved.</div>');
                 // Redirect after a short delay
-                setTimeout(function(){ window.location = '/Treasurer /withdrawal_endorsement.php'; }, 2000);
+                setTimeout(function(){ window.location = '/Treasurer/withdrawal_endorsement.php'; }, 2000);
             } else {
                 // Error message
                 $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary">Error! Cannot save Member Saving Withdarwal Decision. Contact system admin.</div>');
@@ -890,7 +890,7 @@ $(document).on('submit', '.com-withdrawal-decision-form', function(e){
                 // Success message
                 $('.msg').html('<div class="alert offset-md-2 col-6 msg alert-success text-primary">Member Complete Saving Withdarwal Decision successfully Saved.</div>');
                 // Redirect after a short delay
-                setTimeout(function(){ window.location = '/Treasurer /complete_withdrawals.php'; }, 2000);
+                setTimeout(function(){ window.location = '/Treasurer/complete_withdrawals.php'; }, 2000);
             } else {
                 // Error message
                 $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary">Error! Cannot save Member Saving Withdarwal Decision. Contact system admin.</div>');
