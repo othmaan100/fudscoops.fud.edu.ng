@@ -22,26 +22,6 @@ jobs:
       - name: Checkout code (full history)
         uses: actions/checkout@v4
         with:
-<<<<<<< HEAD
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          port: 21
-          protocol: ftps          # explicit FTPS on port 21
-          server-dir: ./          # the FTP account's root is the site root
-          # Only changed files are uploaded; state is kept in .ftp-deploy-sync-state.json on the server.
-          exclude: |
-            **/.git*
-            **/.git*/**
-            .github/**
-            README.md
-            CHANGELOG.md
-            db/**
-            error_log
-            **/error_log
-            uploads/**
-            config/db_config.php
-=======
           fetch-depth: 0
 
       # Give each file the date of the last commit that changed it, so that
@@ -82,8 +62,8 @@ jobs:
             --exclude '^db/' \
             --exclude '(^|/)error_log$' \
             --exclude '^uploads/' \
+            --exclude '^config/db_config\.php$' \
             --exclude '^\.ftp-deploy-sync-state\.json$' \
             ./ ./
           bye
           EOF
->>>>>>> 131efa053b5ed86a32cf1aedb2c8707bc69214da
