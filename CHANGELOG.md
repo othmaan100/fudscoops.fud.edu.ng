@@ -18,6 +18,7 @@ at the top.
 | 1 | `db/2026-10-06_fudscoops_settings.sql` | New table `fudscoops_settings` (key/value settings). Seeds `min_monthly_savings` = 2000. | Applied 2026-10-06 | Pending |
 | 2 | `db/2026-10-06_member_approval_split.sql` | One-time fix for members with `chairman_approval = 1` and `treasurer_approval = 0`. Bulk-imported members (no chairman decision record) are set to `treasurer_approval = 1`. Applicants approved through the old flow are set back to `chairman_approval = 0` so they go through the new flow. Backs up the affected rows to `fudscoops_member_approval_backup_20261006` first; undo statement is in the file. Run after uploading the code from 2026-10-06. | Applied 2026-10-06 (220 members fixed, 1 applicant reset) | Pending |
 | 3 | `db/2026-10-08_loans_shares.sql` | Adds `entry_type` and `reference_id` columns to `fudscoops_shares` (shares become a ledger; existing rows become `'purchase'`). Adds settings `loan_max_savings_multiple` (2), `guarantor_max_open_loans` (2), `share_min_balance_after_transfer` (20000). Marks two empty records deleted (`fudscoops_shares_transfer` 2, `fudscoops_shares_conversion` 1). Run after #1 and BEFORE uploading the code from 2026-10-08 (the current code is unaffected by the new columns). | Applied 2026-10-08 | Pending |
+| 4 | `db/2026-10-13_loan_workflow.sql` | Loan workflow reform. Backs up `fudscoops_loan` to `fudscoops_loan_backup_20261013`. Adds loan columns `interest_rate`, `interest_amount`, `total_payable`, `treasurer_comment`, `treasurer_date`, `disbursed_amount`, `disbursement_date`, `disbursement_reference`, `disbursed_by`, `repayment_start`, `repaid_date`; adds `fudscoops_suppliers.sort_code`; adds setting `loan_interest_rate` (10). Existing `'Approve'`/`'Approved'` loans become `'Disbursed'` with no interest (total = approved amount, paid out on the loan date, deductions from that month); loans already repaid in full become `'Repaid'`; pending loans the Chairman had decided are returned to the new flow (approved → undecided; declined → `'Disapprove'`). Undo statements are in the file. Run after #3 and BEFORE uploading the code from 2026-10-13. | Applied 2026-10-13 (155 loans → Disbursed) | Pending |
 
 ### Meaning of the approval columns (as of 2026-10-06)
 
@@ -39,17 +40,20 @@ at the top.
 | 1 | -1 | Superseded: the member made a newer request, which was approved instead |
 | -1 | any | Rejected |
 
-`fudscoops_loan` (from 2026-10-08; one row per application):
+`fudscoops_loan` (one row per application; workflow from 2026-10-13):
 
 | Column | Values |
 |---|---|
 | `guarantor_status` | 0 awaiting guarantor, 1 accepted, -1 declined |
-| `chairman_approval` | 0 undecided, 1 approved, -1 declined |
-| `loan_status` | `'pending'`, `'Approve'` (Treasurer approved; bulk uploads use `'Approved'`), `'Disapprove'` (Treasurer declined) |
-| `is_action_disabled` | 1 after the Treasurer decides; the Chairman's **Unlock** sets 0 so the Treasurer can change it |
+| `chairman_approval` | 0 undecided, 1 authorized, -1 declined |
+| `loan_status` | `'pending'` (awaiting guarantor, then Treasurer), `'Recommended'` (Treasurer fixed amount, period and interest; awaiting Chairman), `'Approve'` (Chairman authorized; awaiting payment), `'Disbursed'` (paid out; being repaid), `'Repaid'` (fully repaid), `'Disapprove'` (declined: by the Chairman if `chairman_approval` = -1, otherwise by the Treasurer). `'Approved'` (old bulk uploads) is treated as `'Disbursed'`. |
+| `amount_recommended`, `interest_rate`, `interest_amount`, `total_payable` | Fixed by the Treasurer: interest = amount × rate ÷ 100 (flat); total = amount + interest |
+| `disbursed_amount`, `disbursement_date`, `disbursement_reference`, `disbursed_by` | Recorded by the Treasurer when the money is paid |
+| `repayment_start` | First day of the month after payment; `repaid_date` set when deductions reach `total_payable` |
+| `is_action_disabled` | 1 after the Chairman decides; the Chairman's **Unlock** (before payment) returns the loan to the Treasurer |
 
-`fudscoops_loan_repayments`: `status` 0 = monthly repayment schedule (`loan_repayment_amount`),
-1 = deduction received (`amount_paid`).
+`fudscoops_loan_repayments`: `status` 0 = monthly repayment schedule (`loan_repayment_amount` =
+total ÷ months, dated `repayment_start`), 1 = deduction received (`amount_paid`, one per loan per month).
 
 `fudscoops_shares` (from 2026-10-08; a ledger, one row per movement; holding = sum of approved rows):
 
@@ -67,6 +71,60 @@ and `fudscoops_shares_conversion` (`conversion_status`, `chairman_approval`): 0 
 
 ## 2026-10-13
 
+### Loan workflow reform (application to repayment)
+
+Run `db/2026-10-13_loan_workflow.sql` (#4) on the live database **before** uploading this code.
+
+New flow:
+
+1. **Member applies.** Each application is a new record. Supplier phone number and sort code are
+   now saved (they were lost before).
+2. **Guarantor accepts or declines.**
+3. **Treasurer reviews** (loan details page). The Treasurer fixes the amount and the number of
+   months, then recommends or declines. The amount may not exceed the amount applied for or the
+   member's loan limit (times savings balance, less what they still owe). Flat interest
+   (`loan_interest_rate`, default 10%, set in Savings Settings) is added once; a live preview shows
+   interest, total and the monthly deduction. The Treasurer can revise until the Chairman decides.
+4. **Chairman authorizes or declines** the Treasurer's figures. **Unlock** (before payment)
+   returns the loan to the Treasurer.
+5. **Treasurer records the payment** (date and bank reference). Deductions start the following
+   month, and the schedule (total ÷ months) is created at this point.
+6. **Deductions** are recorded one month at a time, individually or by batch upload. A shortfall
+   adds extra months to the schedule. When the deductions reach the total, the loan becomes
+   **Fully repaid** automatically. The member and the guarantor are told on their dashboards
+   ("You are released as guarantor"), and the member may apply for that loan type again.
+
+Other changes:
+
+- Treasurer and Chairman dashboards show "Loan applications to review", "Loans to authorize" and
+  "Loans to pay out".
+- Loan lists, the member's loan page, the deduction list and the reports show interest, total to
+  repay, repaid and balance. Reports use the payment date and the total including interest.
+- **Batch deduction upload:**
+  - The CSV has an optional third column with the amount actually deducted (blank = the full
+    instalment, commas allowed). Re-uploading a month updates it instead of adding another.
+  - Rows for members without a loan of that type being repaid are skipped (they were counted as
+    inserted before).
+  - Impossible dates (e.g. 13/40/2026) and unknown staff numbers are now rejected.
+- Both loan upload scripts are restricted to the Treasurer.
+
+| File | Change |
+|---|---|
+| `db/2026-10-13_loan_workflow.sql` | **New** – database changes (#4 above) |
+| `config/classes/MemberG3.php` | Treasurer review, Chairman decision, payment, interest, loan limit, auto repaid, shared loan details page, lists, supplier data |
+| `ajax/process_loan_decision.php` | Actions: recommend / decline (Treasurer), authorize / decline / unlock (Chairman), disburse (Treasurer) |
+| `ajax/save_repayment.php` | Says when the loan is now fully repaid |
+| `ajax/getLoanRepaymentAmount.php` | Preview with flat interest; officers only |
+| `Treasurer/uploadLoansDeductionExcel.php` | Amount column, update same month, auto repaid, strict date/staff checks, Treasurer only |
+| `Treasurer/Loan_repayment_template.csv` | Third column: amount deducted |
+| `Treasurer/batch_loan_deduction.php` | Upload instructions |
+| `Treasurer/uploadLoansExcel.php` | Uploaded loans recorded as paid out (no interest); Treasurer only |
+| `Treasurer/savings_settings.php` | Loan interest rate setting |
+| `config/classes/Dashboard.php` | New loan tasks; totals include interest; recently repaid notices |
+| `R/index.php` | Fully repaid / released as guarantor notices; balance column |
+| `config/classes/Report.php` | Paid-out loans, interest and total columns |
+| `config/classes/MemberG1.php` | Cumulative loan uses the new statuses |
+
 ### Database connection works on both the live server and local XAMPP
 
 - The deploy workflow uploaded the local `config/classes/DB.php` (login `root`, no password) to
@@ -80,6 +138,17 @@ and `fudscoops_shares_conversion` (`conversion_status`, `chairman_approval`): 0 
   It is in `.gitignore` and excluded from the deploy workflow.
 
 Files: `config/classes/DB.php`, `.gitignore`, `.github/workflows/deploy.yml`. Database: none.
+(Afterwards the user set `DB.php` back to the live login only.)
+
+### Treasurer login redirect
+
+- After login, treasurers were sent to `/Treasurer /` (the old live folder with a trailing space),
+  which no longer exists since the deploy uploads the repository's `Treasurer/` folder: 404.
+  The redirect and two other links in `js/custom.js` now point to `Treasurer/`.
+- The old `Treasurer ` folder on the server is no longer used and can be deleted once the new
+  `Treasurer/` folder is confirmed working.
+
+Files: `js/custom.js`. Database: none.
 
 ## 2026-10-08
 
@@ -428,14 +497,11 @@ Files:
 ## Known issues not yet addressed
 
 ### Loans
-- Interest (left as is on request, 2026-10-08): the Treasurer's approval saves the monthly
-  repayment with 6% annual interest, while the society is described as interest-free, bulk-uploaded
-  loans have no interest, and the amount preview (`ajax/getLoanRepaymentAmount.php`) shows the
-  amount without interest.
-- Status spelling differs: `'Approve'` (system) vs `'Approved'` (bulk uploads). Code and reports
-  accept both.
+- Bulk-uploaded loans (`Treasurer/uploadLoansExcel.php`) are recorded as already paid out with
+  no interest; the 10% applies only to loans that go through the Treasurer's review.
 - Many existing loans have two schedule rows from earlier re-uploads (304 rows for 155 loans);
   the latest is used.
+- `fudscoops_loan_repayments.amount_paid` holds whole naira only (kobo are dropped).
 
 ### Shares
 - 564 of 685 holdings recorded before 2026-10-08 are not whole units of ₦3,000 (one is ₦85).

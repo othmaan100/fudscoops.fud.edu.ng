@@ -25,7 +25,11 @@ require_once '../config/classes/MemberG3.php';
         }
     $response =$members->saveRepayment($loan_id,$member_id,$amount_paid,$repayment_date,$loan_repayment_amount);
     if($response == 1){
-       echo json_encode(['status' => 'success', 'message' => 'Repayment recorded successfully.']);
+       // Tell the Treasurer when this deduction completed the loan (MemberG3::updateRepaidStatus)
+       $status = $db->getConnection()->prepare("SELECT loan_status FROM fudscoops_loan WHERE loan_id = :id");
+       $status->execute([':id' => $loan_id]);
+       $done = $status->fetchColumn() === 'Repaid';
+       echo json_encode(['status' => 'success', 'message' => $done ? 'Repayment recorded. The loan is now fully repaid.' : 'Repayment recorded successfully.']);
     } else {
         echo json_encode(['status' => 'error', 'message' => 'Failed to save repayment.']);
     }

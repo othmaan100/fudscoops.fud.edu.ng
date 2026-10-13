@@ -31,6 +31,7 @@ $loansOutstanding = array_sum(array_column($loans, 'outstanding'));
 $openLoans = count(array_filter($loans, function ($l) { return $l['outstanding'] > 0; }));
 $pending = $dashboard->memberPending($memberId);
 $requests = $dashboard->personalRequests($employeeid);
+$repaid = $dashboard->recentlyRepaid($memberId, $employeeid);
 $transferNotice = $member2->notifyMemberShareTransferApproval($memberId);
 $recentWithdrawals = $member1->getRecentMemberWithdrawals($memberId);
 $banks = (new DB())->getConnection()->query("SELECT id, name FROM banks")->fetchAll(PDO::FETCH_KEY_PAIR);
@@ -71,6 +72,12 @@ echo $view->subHeader('../');
         <div class="fud-notice"><i class="mdi mdi-swap-horizontal"></i>
           <span><?php echo $requests['transfers']; ?> share transfer(s) are waiting for you to accept.</span>
           <a href="transfer.php">Accept</a></div>
+      <?php } ?>
+      <?php foreach ($repaid['own'] as $r) { ?>
+        <div class="fud-notice success"><i class="mdi mdi-check-decagram"></i><span>Your <?php echo htmlspecialchars($r['loan_type_name']); ?> was fully repaid on <?php echo date('d M Y', strtotime($r['repaid_date'])); ?>.</span></div>
+      <?php } ?>
+      <?php foreach ($repaid['guaranteed'] as $r) { ?>
+        <div class="fud-notice success"><i class="mdi mdi-account-check"></i><span>The loan you guaranteed for <?php echo htmlspecialchars($r['fname'] . ' ' . $r['lname']); ?> has been fully repaid. You are released as guarantor.</span></div>
       <?php } ?>
       <?php if (strpos($transferNotice, 'Approved') !== false) { ?>
         <div class="fud-notice success"><i class="mdi mdi-check-circle"></i><span>A share transfer to you has been approved.</span></div>
@@ -135,15 +142,15 @@ echo $view->subHeader('../');
               <?php if ($loans) { ?>
                 <div class="table-responsive">
                   <table class="table fud-table">
-                    <thead><tr><th>Date</th><th>Type</th><th class="num">Amount (₦)</th><th class="num">Outstanding (₦)</th><th>Status</th></tr></thead>
+                    <thead><tr><th>Date</th><th>Type</th><th class="num">To repay (₦)</th><th class="num">Balance (₦)</th><th>Status</th></tr></thead>
                     <tbody>
                       <?php foreach (array_slice($loans, 0, 5) as $loan) {
-                          $pill = $loan['stage'] === 'Approved' ? 'ok' : (strpos($loan['stage'], 'Declined') === 0 ? 'no' : 'wait'); ?>
+                          $pill = in_array($loan['stage'], ['Repaying', 'Fully repaid'], true) ? 'ok' : (strpos($loan['stage'], 'Declined') === 0 ? 'no' : 'wait'); ?>
                         <tr>
                           <td><?php echo htmlspecialchars(date('d M Y', strtotime(substr($loan['loan_date'], 0, 10)))); ?></td>
                           <td><?php echo htmlspecialchars($loan['loan_type_name']); ?></td>
                           <td class="num"><?php echo number_format($loan['amount'], 2); ?></td>
-                          <td class="num"><?php echo $loan['stage'] === 'Approved' ? number_format($loan['outstanding'], 2) : '—'; ?></td>
+                          <td class="num"><?php echo $loan['stage'] === 'Repaying' ? number_format($loan['outstanding'], 2) : ''; ?></td>
                           <td><span class="fud-pill <?php echo $pill; ?>"><?php echo htmlspecialchars($loan['stage']); ?></span></td>
                         </tr>
                       <?php } ?>

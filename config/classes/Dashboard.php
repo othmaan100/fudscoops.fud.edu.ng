@@ -47,9 +47,9 @@ class Dashboard{
     {
         $savings = $this->value("SELECT COALESCE(SUM(savings_amount), 0) FROM fudscoops_savings WHERE COALESCE(savings_is_deleted, 0) = 0");
         $withdrawn = $this->value("SELECT COALESCE(SUM(approved_withrawal_amount), 0) FROM fudscoops_withrawals WHERE chairman_approval = 1 AND COALESCE(withrawals_is_deleted, 0) = 0");
-        $loans = $this->value("SELECT COALESCE(SUM(COALESCE(NULLIF(amount_recommended, 0), loan_amount)), 0) FROM fudscoops_loan WHERE loan_status IN ('Approve', 'Approved')");
+        $loans = $this->value("SELECT COALESCE(SUM(COALESCE(total_payable, NULLIF(amount_recommended, 0), loan_amount)), 0) FROM fudscoops_loan WHERE loan_status IN ('Disbursed', 'Approved')");
         $repaid = $this->value("SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_loan_repayments r JOIN fudscoops_loan l ON l.loan_id = r.loan_id
-                                WHERE r.status = 1 AND COALESCE(r.is_deleted, 0) = 0 AND l.loan_status IN ('Approve', 'Approved')");
+                                WHERE r.status = 1 AND COALESCE(r.is_deleted, 0) = 0 AND l.loan_status IN ('Disbursed', 'Approved')");
         $lastMonth = $this->con->query("SELECT CAST(year AS UNSIGNED) y, CAST(month AS UNSIGNED) m, SUM(savings_amount) total
                                         FROM fudscoops_savings WHERE COALESCE(savings_is_deleted, 0) = 0
                                         GROUP BY y, m ORDER BY y DESC, m DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
@@ -58,7 +58,7 @@ class Dashboard{
             'savings_balance' => $savings - $withdrawn,
             'share_capital' => $this->value("SELECT COALESCE(SUM(amount_paid), 0) FROM fudscoops_shares WHERE share_status = 1 AND shares_is_deleted = 0"),
             'loans_outstanding' => $loans - $repaid,
-            'open_loans' => (int) $this->value("SELECT COUNT(*) FROM fudscoops_loan WHERE loan_status IN ('Approve', 'Approved')"),
+            'open_loans' => (int) $this->value("SELECT COUNT(*) FROM fudscoops_loan WHERE loan_status IN ('Disbursed', 'Approved')"),
             'last_month_label' => $lastMonth ? date('F Y', mktime(0, 0, 0, $lastMonth['m'], 1, $lastMonth['y'])) : '',
             'last_month_total' => $lastMonth ? $lastMonth['total'] : 0,
         ];
@@ -79,7 +79,7 @@ class Dashboard{
                     ['Share purchases to approve', $c("SELECT COUNT(*) FROM fudscoops_shares WHERE entry_type = 'purchase' AND share_status = 0 AND secretary_endorsement = 1 AND chairman_approval = 0 AND shares_is_deleted = 0"), 'mdi-chart-pie', 'manage_share_purchase.php'],
                     ['Share transfers to approve', $c("SELECT COUNT(*) FROM fudscoops_shares_transfer WHERE share_transfer_is_deleted = 0 AND is_accepted = 1 AND share_transfer_status = 0 AND secretary_endorsement = 1 AND chairman_approval = 0"), 'mdi-swap-horizontal', 'manage_share_transfer.php'],
                     ['Share conversions to approve', $c("SELECT COUNT(*) FROM fudscoops_shares_conversion WHERE share_conversion_is_deleted = 0 AND conversion_status = 0 AND chairman_approval = 0"), 'mdi-sync', 'manage_share_conversion.php'],
-                    ['Loans to approve', $c("SELECT COUNT(*) FROM fudscoops_loan WHERE guarantor_status = 1 AND COALESCE(chairman_approval, 0) = 0 AND loan_status = 'pending'"), 'mdi-cash-multiple', 'loans.php'],
+                    ['Loans to authorize', $c("SELECT COUNT(*) FROM fudscoops_loan WHERE loan_status = 'Recommended' AND chairman_approval = 0"), 'mdi-cash-multiple', 'loans.php'],
                 ];
             case 'treasurer':
                 return [
@@ -90,7 +90,8 @@ class Dashboard{
                     ['Share purchases to confirm', $c("SELECT COUNT(*) FROM fudscoops_shares WHERE entry_type = 'purchase' AND share_status = 0 AND chairman_approval = 1 AND shares_is_deleted = 0"), 'mdi-chart-pie', 'manage_share_purchase.php'],
                     ['Share transfers to complete', $c("SELECT COUNT(*) FROM fudscoops_shares_transfer WHERE share_transfer_is_deleted = 0 AND is_accepted = 1 AND chairman_approval = 1 AND share_transfer_status = 0"), 'mdi-swap-horizontal', 'manage_share_transfer.php'],
                     ['Share conversions to complete', $c("SELECT COUNT(*) FROM fudscoops_shares_conversion WHERE share_conversion_is_deleted = 0 AND chairman_approval = 1 AND conversion_status = 0"), 'mdi-sync', 'manage_share_conversion.php'],
-                    ['Loans to approve', $c("SELECT COUNT(*) FROM fudscoops_loan WHERE chairman_approval = 1 AND loan_status = 'pending'"), 'mdi-cash-multiple', 'loans.php'],
+                    ['Loan applications to review', $c("SELECT COUNT(*) FROM fudscoops_loan WHERE guarantor_status = 1 AND loan_status = 'pending'"), 'mdi-cash-multiple', 'loans.php'],
+                    ['Loans to pay out', $c("SELECT COUNT(*) FROM fudscoops_loan WHERE loan_status = 'Approve' AND chairman_approval = 1"), 'mdi-bank-transfer', 'loans.php'],
                     ['Commodity applications pending', $c("SELECT COUNT(*) FROM fudscoops_commodity_loan_applications WHERE status = 'pending'"), 'mdi-cart-outline', 'view_commodity_request.php'],
                 ];
             case 'secretary':
@@ -98,7 +99,7 @@ class Dashboard{
                     ['Share purchases to endorse', $c("SELECT COUNT(*) FROM fudscoops_shares WHERE entry_type = 'purchase' AND share_status = 0 AND secretary_endorsement = 0 AND shares_is_deleted = 0"), 'mdi-chart-pie', 'manage_share_purchase.php'],
                     ['Share transfers to endorse', $c("SELECT COUNT(*) FROM fudscoops_shares_transfer WHERE share_transfer_is_deleted = 0 AND is_accepted = 1 AND share_transfer_status = 0 AND secretary_endorsement = 0"), 'mdi-swap-horizontal', 'manage_share_transfer.php'],
                     ['Membership applications in progress', $c("SELECT COUNT(*) FROM fudscoops_member WHERE NOT (treasurer_approval = 1 AND chairman_approval = 1) AND is_deleted = 0"), 'mdi-account-plus', 'member_list.php'],
-                    ['Loan applications in progress', $c("SELECT COUNT(*) FROM fudscoops_loan WHERE loan_status = 'pending' AND guarantor_status <> -1 AND COALESCE(chairman_approval, 0) <> -1"), 'mdi-cash-multiple', 'loans.php'],
+                    ['Loan applications in progress', $c("SELECT COUNT(*) FROM fudscoops_loan WHERE loan_status IN ('pending', 'Recommended', 'Approve') AND guarantor_status <> -1"), 'mdi-cash-multiple', 'loans.php'],
                     ['Commodity applications pending', $c("SELECT COUNT(*) FROM fudscoops_commodity_loan_applications WHERE status = 'pending'"), 'mdi-cart-outline', 'view_commodity_request.php'],
                 ];
         }
@@ -117,6 +118,21 @@ class Dashboard{
         ];
     }
 
+    // Loans fully repaid in the last 60 days: the member's own, and loans this person guaranteed (released)
+    public function recentlyRepaid($memberId, $employeeId)
+    {
+        $since = date('Y-m-d', strtotime('-60 days'));
+        $own = $this->con->prepare("SELECT l.loan_id, l.repaid_date, t.loan_type_name FROM fudscoops_loan l
+                                    LEFT JOIN fudscoops_loan_type t ON t.loan_type_id = l.loan_type_id
+                                    WHERE l.member_id = :m AND l.loan_status = 'Repaid' AND l.repaid_date >= :since");
+        $own->execute([':m' => $memberId, ':since' => $since]);
+        $guaranteed = $this->con->prepare("SELECT l.loan_id, l.repaid_date, e.fname, e.lname FROM fudscoops_loan l
+                                           JOIN fudscoops_member m ON m.member_id = l.member_id JOIN employee e ON e.employee_id = m.employee_id
+                                           WHERE l.guarantor_employee_id = :e AND l.loan_status = 'Repaid' AND l.repaid_date >= :since");
+        $guaranteed->execute([':e' => $employeeId, ':since' => $since]);
+        return ['own' => $own->fetchAll(PDO::FETCH_ASSOC), 'guaranteed' => $guaranteed->fetchAll(PDO::FETCH_ASSOC)];
+    }
+
     // ---------- Member dashboard ----------
 
     public function memberLoans($memberId)
@@ -124,7 +140,7 @@ class Dashboard{
         require_once('MemberG3.php');
         $stmt = $this->con->prepare("
             SELECT l.*, t.loan_type_name,
-                   COALESCE(NULLIF(l.amount_recommended, 0), l.loan_amount) + 0 AS amount,
+                   COALESCE(l.total_payable, NULLIF(l.amount_recommended, 0), l.loan_amount) + 0 AS amount,
                    (SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_loan_repayments r
                      WHERE r.loan_id = l.loan_id AND r.status = 1 AND COALESCE(r.is_deleted, 0) = 0) AS repaid
             FROM fudscoops_loan l LEFT JOIN fudscoops_loan_type t ON t.loan_type_id = l.loan_type_id
@@ -133,7 +149,7 @@ class Dashboard{
         $loans = $stmt->fetchAll(PDO::FETCH_ASSOC);
         foreach ($loans as &$loan) {
             $loan['stage'] = MemberG3::loanStageLabel($loan);
-            $loan['outstanding'] = $loan['stage'] === 'Approved' ? max(0, $loan['amount'] - $loan['repaid']) : 0;
+            $loan['outstanding'] = $loan['stage'] === 'Repaying' ? max(0, $loan['amount'] - $loan['repaid']) : 0;
         }
         return $loans;
     }

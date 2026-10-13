@@ -13,6 +13,7 @@
 
     // Loan and share eligibility rules (see MemberG3::loanEligibilityError and MemberG2 share ledger)
     $rules = [
+        'loan_interest_rate'               => ['Loan interest (flat %)', 'Added once to the approved amount when the Treasurer fixes a new loan (e.g. 10% of ₦100,000 = ₦10,000). Loans already fixed keep their rate.', 10, 'decimal'],
         'loan_max_savings_multiple'        => ['Loan limit (times savings balance)', 'A member\'s open loans plus a new loan may not exceed this many times their savings balance. 0 = no limit.', 2, 'decimal'],
         'guarantor_max_open_loans'         => ['Loans one member may guarantee at a time', 'Open (pending or not fully repaid) loans. 0 = no limit.', 2, 'int'],
         'share_min_balance_after_transfer' => ['Minimum shares kept after a transfer (₦)', 'A member must keep at least this amount of shares after transferring shares to another member.', 20000, 'int'],

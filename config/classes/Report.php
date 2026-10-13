@@ -135,14 +135,15 @@ class Report{
                                         AND entry_type IN ('purchase', 'conversion') AND DATE(date) BETWEEN :from AND :to", $p);
         $sharesTotal = $this->value("SELECT SUM(amount_paid) FROM fudscoops_shares WHERE share_status = 1 AND COALESCE(shares_is_deleted, 0) = 0 AND DATE(date) <= :to", $toEnd);
 
-        $loansPeriod = $this->rows("SELECT COUNT(*) n, SUM(COALESCE(amount_recommended, loan_amount)) amt FROM fudscoops_loan
-                                     WHERE loan_status IN ('Approve', 'Approved') AND STR_TO_DATE(LEFT(loan_date, 10), '%Y-%m-%d') BETWEEN :from AND :to", $p)[0];
-        $loansGranted = $this->value("SELECT SUM(COALESCE(amount_recommended, loan_amount)) FROM fudscoops_loan
-                                        WHERE loan_status IN ('Approve', 'Approved') AND STR_TO_DATE(LEFT(loan_date, 10), '%Y-%m-%d') <= :to", $toEnd);
+        // Loans paid out (disbursed) in the period; owed = total payable (approved amount + interest)
+        $loansPeriod = $this->rows("SELECT COUNT(*) n, SUM(COALESCE(NULLIF(amount_recommended, 0), loan_amount)) amt FROM fudscoops_loan
+                                     WHERE loan_status IN ('Disbursed', 'Approved', 'Repaid') AND COALESCE(disbursement_date, STR_TO_DATE(LEFT(loan_date, 10), '%Y-%m-%d')) BETWEEN :from AND :to", $p)[0];
+        $loansGranted = $this->value("SELECT SUM(COALESCE(total_payable, NULLIF(amount_recommended, 0), loan_amount)) FROM fudscoops_loan
+                                        WHERE loan_status IN ('Disbursed', 'Approved', 'Repaid') AND COALESCE(disbursement_date, STR_TO_DATE(LEFT(loan_date, 10), '%Y-%m-%d')) <= :to", $toEnd);
         $repaidPeriod = $this->value("SELECT SUM(amount_paid) FROM fudscoops_loan_repayments WHERE status = 1 AND COALESCE(is_deleted, 0) = 0
                                         AND loan_repayment_date BETWEEN :from AND :to", $p);
         $repaidTotal = $this->value("SELECT SUM(r.amount_paid) FROM fudscoops_loan_repayments r JOIN fudscoops_loan l ON l.loan_id = r.loan_id
-                                       WHERE r.status = 1 AND COALESCE(r.is_deleted, 0) = 0 AND l.loan_status IN ('Approve', 'Approved') AND r.loan_repayment_date <= :to", $toEnd);
+                                       WHERE r.status = 1 AND COALESCE(r.is_deleted, 0) = 0 AND l.loan_status IN ('Disbursed', 'Approved', 'Repaid') AND r.loan_repayment_date <= :to", $toEnd);
 
         $commodityApproved = $this->value("SELECT SUM(total_amount) FROM fudscoops_commodity_loan_applications WHERE status = 'approved' AND DATE(application_date) BETWEEN :from AND :to", $p);
         $commodityPending = $this->value("SELECT COUNT(*) FROM fudscoops_commodity_loan_applications WHERE status = 'pending'");
@@ -151,9 +152,9 @@ class Report{
                                  FROM fudscoops_savings WHERE COALESCE(savings_is_deleted, 0) = 0
                                    AND CAST(year AS UNSIGNED) * 100 + CAST(month AS UNSIGNED) BETWEEN :mfrom AND :mto
                                  GROUP BY y, m ORDER BY y, m", $months);
-        $loansByType = $this->rows("SELECT t.loan_type_name, COUNT(*) n, SUM(COALESCE(l.amount_recommended, l.loan_amount)) amt
+        $loansByType = $this->rows("SELECT t.loan_type_name, COUNT(*) n, SUM(COALESCE(NULLIF(l.amount_recommended, 0), l.loan_amount)) amt
                                      FROM fudscoops_loan l LEFT JOIN fudscoops_loan_type t ON t.loan_type_id = l.loan_type_id
-                                     WHERE l.loan_status IN ('Approve', 'Approved') AND STR_TO_DATE(LEFT(l.loan_date, 10), '%Y-%m-%d') BETWEEN :from AND :to
+                                     WHERE l.loan_status IN ('Disbursed', 'Approved', 'Repaid') AND COALESCE(l.disbursement_date, STR_TO_DATE(LEFT(l.loan_date, 10), '%Y-%m-%d')) BETWEEN :from AND :to
                                      GROUP BY t.loan_type_name ORDER BY t.loan_type_name", $p);
 
         return [
@@ -170,7 +171,7 @@ class Report{
                 ['Savings balance (all members)', $savingsTotal - $withdrawalsTotal, 'money'],
                 ['Shares bought in period', $sharesPeriod, 'money'],
                 ['Total share capital', $sharesTotal, 'money'],
-                ['Loans granted in period', $loansPeriod['amt'], 'money'],
+                ['Loans paid out in period', $loansPeriod['amt'], 'money'],
                 ['Loan repayments in period', $repaidPeriod, 'money'],
                 ['Loans outstanding', $loansGranted - $repaidTotal, 'money'],
                 ['Commodity approved in period', $commodityApproved, 'money'],
@@ -186,7 +187,7 @@ class Report{
                     'totals' => ['Total', null, array_sum(array_column($byMonth, 'total'))],
                 ],
                 [
-                    'heading' => 'Loans granted by type',
+                    'heading' => 'Loans paid out by type',
                     'columns' => [['Loan type', 'text'], ['Loans', 'int'], ['Amount', 'money']],
                     'rows' => array_map(function ($r) {
                         return [$r['loan_type_name'] ?: 'Unspecified', $r['n'], $r['amt']];
@@ -424,14 +425,17 @@ class Report{
         return array_map(function ($r) {
             $r['amount'] = (float) $r['amount'];
             $r['repaid'] = (float) $r['repaid'];
-            $r['outstanding'] = max(0, $r['amount'] - $r['repaid']);
+            $r['interest'] = (float) $r['interest'];
+            $r['total'] = (float) $r['total'];
+            $r['outstanding'] = max(0, $r['total'] - $r['repaid']);
             return $r;
         }, $this->rows("
-            SELECT l.loan_id, STR_TO_DATE(LEFT(l.loan_date, 10), '%Y-%m-%d') loan_date, t.loan_type_name, l.loan_tenor,
-                   COALESCE(l.amount_recommended, l.loan_amount) amount,
+            SELECT l.loan_id, COALESCE(l.disbursement_date, STR_TO_DATE(LEFT(l.loan_date, 10), '%Y-%m-%d')) loan_date, t.loan_type_name, l.loan_tenor,
+                   COALESCE(NULLIF(l.amount_recommended, 0), l.loan_amount) amount, l.interest_amount interest,
+                   COALESCE(l.total_payable, NULLIF(l.amount_recommended, 0), l.loan_amount) total,
                    e.sp_no, e.fname, e.oname, e.lname, e.dept,
                    (SELECT REPLACE(r.loan_repayment_amount, ',', '') FROM fudscoops_loan_repayments r
-                     WHERE r.loan_id = l.loan_id AND COALESCE(r.is_deleted, 0) = 0
+                     WHERE r.loan_id = l.loan_id AND r.status = 0 AND COALESCE(r.is_deleted, 0) = 0
                      ORDER BY r.loan_repayment_id DESC LIMIT 1) monthly,
                    (SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_loan_repayments r
                      WHERE r.loan_id = l.loan_id AND r.status = 1 AND COALESCE(r.is_deleted, 0) = 0
@@ -440,24 +444,24 @@ class Report{
             JOIN fudscoops_member m ON m.member_id = l.member_id
             JOIN employee e ON e.employee_id = m.employee_id
             LEFT JOIN fudscoops_loan_type t ON t.loan_type_id = l.loan_type_id
-            WHERE l.loan_status IN ('Approve', 'Approved') AND STR_TO_DATE(LEFT(l.loan_date, 10), '%Y-%m-%d') <= :to2 $where
+            WHERE l.loan_status IN ('Disbursed', 'Approved', 'Repaid') AND COALESCE(l.disbursement_date, STR_TO_DATE(LEFT(l.loan_date, 10), '%Y-%m-%d')) <= :to2 $where
             ORDER BY loan_date, e.fname", array_merge([':to' => $to, ':to2' => $to], $params)));
     }
 
     private function loanTable($loans, $heading, $withMember = false)
     {
-        $columns = [['Date', 'date'], ['Loan type', 'text'], ['Tenor (months)', 'int'], ['Amount', 'money'], ['Monthly repayment', 'money'], ['Repaid', 'money'], ['Outstanding', 'money']];
+        $columns = [['Paid out', 'date'], ['Loan type', 'text'], ['Tenor (months)', 'int'], ['Amount', 'money'], ['Interest', 'money'], ['Total to repay', 'money'], ['Monthly repayment', 'money'], ['Repaid', 'money'], ['Outstanding', 'money']];
         if ($withMember) {
             array_splice($columns, 1, 0, [['Staff No', 'text'], ['Name', 'text']]);
         }
         $rows = array_map(function ($l) use ($withMember) {
-            $row = [$l['loan_date'], $l['loan_type_name'] ?: 'Unspecified', $l['loan_tenor'], $l['amount'], $l['monthly'], $l['repaid'], $l['outstanding']];
+            $row = [$l['loan_date'], $l['loan_type_name'] ?: 'Unspecified', $l['loan_tenor'], $l['amount'], $l['interest'], $l['total'], $l['monthly'], $l['repaid'], $l['outstanding']];
             if ($withMember) {
                 array_splice($row, 1, 0, [$l['sp_no'], self::fullName($l)]);
             }
             return $row;
         }, $loans);
-        $totals = ['Total', null, null, array_sum(array_column($loans, 'amount')), null, array_sum(array_column($loans, 'repaid')), array_sum(array_column($loans, 'outstanding'))];
+        $totals = ['Total', null, null, array_sum(array_column($loans, 'amount')), array_sum(array_column($loans, 'interest')), array_sum(array_column($loans, 'total')), null, array_sum(array_column($loans, 'repaid')), array_sum(array_column($loans, 'outstanding'))];
         if ($withMember) {
             array_splice($totals, 1, 0, [null, null]);
         }
@@ -476,16 +480,16 @@ class Report{
 
         return [
             'title' => 'Loans',
-            'subtitle' => 'Granted ' . self::periodText($from, $to) . '. Outstanding balances as at ' . date('d M Y', strtotime($to)) . '.',
+            'subtitle' => 'Paid out ' . self::periodText($from, $to) . '. Outstanding balances as at ' . date('d M Y', strtotime($to)) . '.',
             'summary' => [
-                ['Loans granted in period', count($inPeriod), 'int'],
-                ['Amount granted in period', array_sum(array_column($inPeriod, 'amount')), 'money'],
+                ['Loans paid out in period', count($inPeriod), 'int'],
+                ['Amount paid out in period', array_sum(array_column($inPeriod, 'amount')), 'money'],
                 ['Loans with a balance', count($outstanding), 'int'],
                 ['Total outstanding', array_sum(array_column($all, 'outstanding')), 'money'],
                 ['Total repaid', array_sum(array_column($all, 'repaid')), 'money'],
             ],
             'tables' => [
-                $this->loanTable($inPeriod, 'Loans granted in period', true),
+                $this->loanTable($inPeriod, 'Loans paid out in period', true),
                 $this->loanTable($outstanding, 'All loans with an outstanding balance', true),
             ],
             'notes' => ['Repaid = loan deductions uploaded by the Treasurer. Monthly repayment is the scheduled deduction.'],

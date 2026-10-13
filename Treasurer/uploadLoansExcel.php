@@ -7,6 +7,12 @@ $db = new DB();
 $user = new User();
 $member = new MemberG3();
 
+// Only the Treasurer may upload loans or deductions
+if (!isset($_SESSION['access_level']) || (int) $_SESSION['access_level'] !== 3) {
+    echo '<div class="alert alert-danger">Only the Treasurer can upload this file. Please log in again.</div>';
+    exit();
+}
+
 if (empty($_POST['file_type'])) {
     echo '<div class="alert alert-danger">Error: Please select a Loan Type!</div>';
     exit();
@@ -115,12 +121,12 @@ while (($data = fgetcsv($handle, 1000, ',')) !== false) {
 
     // ================== CHECK IF LOAN EXISTS =====================
     $loanDate = date('Y-m-d');
-    $loanStatus = "Approved";
+    $loanStatus = "Disbursed";
 
     // A member can hold several loans: update their open (not fully repaid) loan of this type, otherwise add a new loan
     $stmtCheck = $con->prepare("SELECT l.loan_id FROM fudscoops_loan l
-         WHERE l.member_id = :member_id AND l.loan_type_id = :type AND l.loan_status IN ('Approve', 'Approved')
-           AND COALESCE(NULLIF(l.amount_recommended, 0), l.loan_amount) > (SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_loan_repayments r
+         WHERE l.member_id = :member_id AND l.loan_type_id = :type AND l.loan_status IN ('Disbursed', 'Approved')
+           AND COALESCE(l.total_payable, NULLIF(l.amount_recommended, 0), l.loan_amount) > (SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_loan_repayments r
                  WHERE r.loan_id = l.loan_id AND r.status = 1 AND COALESCE(r.is_deleted, 0) = 0)
          ORDER BY l.loan_id DESC LIMIT 1");
     $stmtCheck->execute([':member_id' => $memberId, ':type' => $loanTypeId]);
@@ -181,6 +187,12 @@ while (($data = fgetcsv($handle, 1000, ',')) !== false) {
         }
 
         $updated++;
+        // Uploaded loans are running loans already paid out: no interest; deductions from the upload month
+        $con->prepare("UPDATE fudscoops_loan SET interest_rate = 0, interest_amount = 0, total_payable = :total, disbursed_amount = :total2,
+                           disbursement_date = :date, repayment_start = :start WHERE loan_id = :id")
+            ->execute([':total' => $loanAmount, ':total2' => $loanAmount, ':date' => $loanDate,
+                       ':start' => date('Y-m-01', strtotime($loanDate)), ':id' => $loan_id]);
+        $member->updateRepaidStatus($loan_id);
         $status = "Loan updated successfully";
         $statusClass = "text-success";
   
@@ -247,6 +259,12 @@ while (($data = fgetcsv($handle, 1000, ',')) !== false) {
         ]);
 
         $inserted++;
+        // Uploaded loans are running loans already paid out: no interest; deductions from the upload month
+        $con->prepare("UPDATE fudscoops_loan SET interest_rate = 0, interest_amount = 0, total_payable = :total, disbursed_amount = :total2,
+                           disbursement_date = :date, repayment_start = :start WHERE loan_id = :id")
+            ->execute([':total' => $loanAmount, ':total2' => $loanAmount, ':date' => $loanDate,
+                       ':start' => date('Y-m-01', strtotime($loanDate)), ':id' => $loan_id]);
+        $member->updateRepaidStatus($loan_id);
         $status = "Loan inserted successfully";
         $statusClass = "text-success";
     }

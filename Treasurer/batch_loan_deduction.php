@@ -105,6 +105,8 @@
                                                 <a href="Loan_repayment_template.csv" download class="text-primary">Download</a> Template.
                                             </li>
                                             <li>Always follow the above template to upload loan deductions.</li>
+                                            <li>Columns: staff number, repayment month (mm/dd/yyyy), and the <b>amount actually deducted</b>. Leave the amount blank to record the full monthly instalment.</li>
+                                            <li>Each deduction goes to the member's loan of the selected type that is being repaid. Uploading the same month again updates it. Loans are marked fully repaid automatically.</li>
                                             <li>Ensure your file has a <b class="text-danger">.csv</b> extension.</li>
                                         </ol>
                                     </div>

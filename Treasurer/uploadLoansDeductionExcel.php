@@ -7,6 +7,12 @@ $db = new DB();
 $user = new User();
 $member = new MemberG3();
 
+// Only the Treasurer may upload loans or deductions
+if (!isset($_SESSION['access_level']) || (int) $_SESSION['access_level'] !== 3) {
+    echo '<div class="alert alert-danger">Only the Treasurer can upload this file. Please log in again.</div>';
+    exit();
+}
+
 if (empty($_POST['file_type'])) {
     echo '<div class="alert alert-danger">Error: Please select a Loan Type!</div>';
     exit();
@@ -75,9 +81,10 @@ while (($data = fgetcsv($handle, 1000, ',')) !== false) {
     $spNo = trim($data[0] ?? "");
     $mainDate = trim($data[1]);
      
-    // Corrected date handling
+    // Corrected date handling (strict: 13/40/2026 must not roll over into another month)
     $date = DateTime::createFromFormat('m/d/Y', $mainDate);
-    if ($date === false) {
+    $dateParts = explode('/', $mainDate);
+    if ($date === false || count($dateParts) !== 3 || !checkdate((int) $dateParts[0], (int) $dateParts[1], (int) $dateParts[2])) {
         $resultTable .= "
             <tr>
                 <td>$i</td>
@@ -96,8 +103,9 @@ while (($data = fgetcsv($handle, 1000, ',')) !== false) {
     $formatted_date = $date->format('Y-m-d');
    
     // ================== VALIDATION =====================
-    $memberId = $user->getMemberId($user->getEmployeeId($spNo));
-   
+    $employeeId = $user->getEmployeeId($spNo);
+    $memberId = empty($employeeId) ? 0 : $user->getMemberId($employeeId);
+
     if (empty($memberId) || empty($formatted_date)) {
         $resultTable .= "
             <tr>
@@ -106,90 +114,58 @@ while (($data = fgetcsv($handle, 1000, ',')) !== false) {
                 <td></td>
                 <td>$mainDate</td>
                 <td>Invalid</td>
-                <td class='text-danger'>Invalid Data</td>
+                <td class='text-danger'>Staff number not found or not a member</td>
             </tr>";
         $skipped++;
         $i++;
         continue;
     }
 
-    // ================== CHECK IF LOAN EXISTS =====================
-    $loanDate = date('Y-m-d');
-    $loanStatus = "Paid";
-
-    // Deductions go to the member's open (approved, not fully repaid) loan of this type
+    // ================== FIND THE LOAN AND RECORD THE DEDUCTION =====================
+    // Deductions go to the member's open (paid out, not fully repaid) loan of this type.
+    // Column 3 (optional) is the amount actually deducted; blank = the full monthly instalment.
+    $loanStatus = "";
+    $repaymentAmount = "";
     $stmtCheck = $con->prepare("SELECT l.loan_id FROM fudscoops_loan l
-         WHERE l.member_id = :member_id AND l.loan_type_id = :type AND l.loan_status IN ('Approve', 'Approved')
-           AND COALESCE(NULLIF(l.amount_recommended, 0), l.loan_amount) > (SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_loan_repayments r
-                 WHERE r.loan_id = l.loan_id AND r.status = 1 AND COALESCE(r.is_deleted, 0) = 0)
-         ORDER BY l.loan_id DESC LIMIT 1");
+         WHERE l.member_id = :member_id AND l.loan_type_id = :type AND l.loan_status IN ('Disbursed', 'Approved')
+         ORDER BY l.loan_id ASC LIMIT 1");
     $stmtCheck->execute([':member_id' => $memberId, ':type' => $loanTypeId]);
+    $loan_id = $stmtCheck->fetchColumn();
 
-    if ($stmtCheck->rowCount() > 0) {
-        $loan_id = $stmtCheck->fetch(PDO::FETCH_ASSOC)['loan_id'];
+    if ($loan_id) {
+        $monthly = round((float) $member->getRepaymentAmount($loan_id, $memberId), 2);
+        $fileAmount = isset($data[2]) ? preg_replace('/[^0-9.]/', '', $data[2]) : '';
+        $repaymentAmount = ($fileAmount !== '' && is_numeric($fileAmount) && (float) $fileAmount > 0) ? round((float) $fileAmount, 2) : $monthly;
 
-        // Fetch the repayment amount
-        $repaymentAmount = $member->getRepaymentAmount($loan_id, $memberId);
+        // Same rules as the single-deduction page: one deduction per loan per month (re-uploading a month
+        // updates it), and the loan is marked fully repaid when the deductions reach the total
+        $before = $con->prepare("SELECT COUNT(*) FROM fudscoops_loan_repayments WHERE loan_id = :id AND status = 1 AND COALESCE(is_deleted, 0) = 0
+                                 AND DATE_FORMAT(loan_repayment_date, '%Y-%m') = DATE_FORMAT(:d, '%Y-%m')");
+        $before->execute([':id' => $loan_id, ':d' => $formatted_date]);
+        $existed = $before->fetchColumn() > 0;
 
-        // Check if a repayment for this loan exists with the same date and amount
-        $stmtRepayCheck = $con->prepare("
-            SELECT loan_repayment_id
-            FROM fudscoops_loan_repayments
-            WHERE member_id = :member_id
-              AND loan_id = :loan_id
-              AND loan_repayment_amount = :repayment_amount
-              AND loan_repayment_date = :deduction_date
-              AND status = 1
-        ");
-        $stmtRepayCheck->execute([
-            ':member_id' => $memberId,
-            ':loan_id' => $loan_id,
-            ':repayment_amount' => $repaymentAmount,
-            ':deduction_date' => $formatted_date
-        ]);
-
-        if ($stmtRepayCheck->rowCount() > 0) {
-            // If a record exists, update it
-            $repayment_id = $stmtRepayCheck->fetch(PDO::FETCH_ASSOC)['loan_repayment_id'];
-            
-            $stmtUpdate = $con->prepare("
-                UPDATE fudscoops_loan_repayments 
-                SET loan_repayment_amount = :repayment, 
-                    date_paid = NOW() 
-                WHERE loan_repayment_id = :repayment_id
-            ");
-            $stmtUpdate->execute([
-                ':repayment' => $repaymentAmount,
-                ':repayment_id' => $repayment_id
-            ]);
-            $updated++;
-            $status = "Deduction updated successfully";
-            $statusClass = "text-success";
+        if ($member->saveRepayment($loan_id, $memberId, $repaymentAmount, $formatted_date, $monthly) === 1) {
+            $existed ? $updated++ : $inserted++;
+            $status = $existed ? "Deduction updated" : "Deduction recorded";
+            $statusClass = $existed ? "text-success" : "text-info";
+            $st = $con->prepare("SELECT loan_status FROM fudscoops_loan WHERE loan_id = :id");
+            $st->execute([':id' => $loan_id]);
+            if ($st->fetchColumn() === 'Repaid') {
+                $loanStatus = "Fully repaid";
+                $status .= " – loan fully repaid";
+            } else {
+                $loanStatus = "Repaying";
+            }
         } else {
-            // If no record exists, insert a new one
-            $stmtInsert = $con->prepare("
-                INSERT INTO fudscoops_loan_repayments 
-                (member_id, loan_id, loan_repayment_amount, loan_repayment_date, amount_paid, status, date_paid)
-                VALUES (:member_id, :loan_id, :repayment, :deduction_date, :amount, :status, NOW())
-            ");
-            $stmtInsert->execute([
-                ':member_id' => $memberId,
-                ':loan_id' => $loan_id,
-                ':repayment' => $repaymentAmount,
-                ':deduction_date' => $formatted_date,
-                ':amount' => $repaymentAmount,
-                ':status' => 1
-            ]);
-            $inserted++;
-            $status = "Deduction inserted successfully";
-            $statusClass = "text-info";
+            $skipped++;
+            $status = "Could not record the deduction";
+            $statusClass = "text-danger";
         }
-
     } else {
-        // Loan not found
-        $inserted++;
-        $status = "Loan not found";
-        $statusClass = "text-error";
+        // No loan of this type being repaid
+        $skipped++;
+        $status = "No loan of this type being repaid";
+        $statusClass = "text-danger";
     }
 
     // ============== TABLE ROW OUTPUT =====================
@@ -213,8 +189,8 @@ $resultTable .= '</tbody></table>';
 echo "
 <div class='alert alert-info'>
     <strong>Import Results:</strong><br>
-    $inserted new loans inserted<br>
-    $updated loans updated<br>
+    $inserted deductions recorded<br>
+    $updated deductions updated<br>
     $skipped records skipped
 </div>
 ";
