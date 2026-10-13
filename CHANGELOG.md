@@ -19,6 +19,7 @@ at the top.
 | 2 | `db/2026-10-06_member_approval_split.sql` | One-time fix for members with `chairman_approval = 1` and `treasurer_approval = 0`. Bulk-imported members (no chairman decision record) are set to `treasurer_approval = 1`. Applicants approved through the old flow are set back to `chairman_approval = 0` so they go through the new flow. Backs up the affected rows to `fudscoops_member_approval_backup_20261006` first; undo statement is in the file. Run after uploading the code from 2026-10-06. | Applied 2026-10-06 (220 members fixed, 1 applicant reset) | Pending |
 | 3 | `db/2026-10-08_loans_shares.sql` | Adds `entry_type` and `reference_id` columns to `fudscoops_shares` (shares become a ledger; existing rows become `'purchase'`). Adds settings `loan_max_savings_multiple` (2), `guarantor_max_open_loans` (2), `share_min_balance_after_transfer` (20000). Marks two empty records deleted (`fudscoops_shares_transfer` 2, `fudscoops_shares_conversion` 1). Run after #1 and BEFORE uploading the code from 2026-10-08 (the current code is unaffected by the new columns). | Applied 2026-10-08 | Pending |
 | 4 | `db/2026-10-13_loan_workflow.sql` | Loan workflow reform. Backs up `fudscoops_loan` to `fudscoops_loan_backup_20261013`. Adds loan columns `interest_rate`, `interest_amount`, `total_payable`, `treasurer_comment`, `treasurer_date`, `disbursed_amount`, `disbursement_date`, `disbursement_reference`, `disbursed_by`, `repayment_start`, `repaid_date`; adds `fudscoops_suppliers.sort_code`; adds setting `loan_interest_rate` (10). Existing `'Approve'`/`'Approved'` loans become `'Disbursed'` with no interest (total = approved amount, paid out on the loan date, deductions from that month); loans already repaid in full become `'Repaid'`; pending loans the Chairman had decided are returned to the new flow (approved → undecided; declined → `'Disapprove'`). Undo statements are in the file. Run after #3 and BEFORE uploading the code from 2026-10-13. | Applied 2026-10-13 (155 loans → Disbursed) | Pending |
+| 5 | `db/2026-10-13_commodity_workflow.sql` | Commodity workflow. Backs up the applications, application items and supply items tables (`*_backup_20261013`). Status becomes free text; adds application columns for months, Treasurer and Chairman decisions, interest, total, monthly amount, supply and repayment; new table `fudscoops_commodity_repayments`; setting `commodity_max_tenor` (6). The 6 existing requests (none ever supplied) go to the Treasurer at their requested value; supply items with no stock that nobody requested get their full allocation. Undo statements are in the file. Run after #4 and BEFORE uploading the code from 2026-10-13. | Applied 2026-10-13 (6 requests → pending) | Pending |
 
 ### Meaning of the approval columns (as of 2026-10-06)
 
@@ -70,6 +71,112 @@ and `fudscoops_shares_conversion` (`conversion_status`, `chairman_approval`): 0 
 ---
 
 ## 2026-10-13
+
+### Member menu links work when the portal is in a sub-folder
+
+The member menu links (`/R/...`) start from the web root. On local XAMPP the portal is at
+`http://localhost/fudscoops.fud.edu.ng/`, so every member menu item (e.g. Soft Loan Request, View Loan
+Approval, View Loan Deduction) gave "Not Found". `View::appUrl()` now adds the portal's folder to these
+links. The live site, at the domain root, is unaffected.
+
+| File | Change |
+|---|---|
+| `config/classes/View.php` | New `appUrl()`; used for sidebar links and group links |
+
+### Commodity workflow rebuilt (same steps as loans)
+
+Run `db/2026-10-13_commodity_workflow.sql` (#5) on the live database **before** uploading this code.
+
+New flow:
+
+1. **Member requests** (Commodity Request) while a supply is open: chooses items and quantities,
+   and how many months to repay (1 to `commodity_max_tenor`, default 6, set in Savings Settings).
+   The server checks:
+   - the supply is open;
+   - one request per member per supply (a declined request can be made again);
+   - the per-member item limits (senior SP / junior);
+   - the stock left.
+
+   It works out the value itself and reserves the stock.
+2. **Treasurer reviews:** fixes the quantities (up to what was requested) and months, then sends the
+   request to the Chairman, or declines it with a reason. The flat loan interest rate (`loan_interest_rate`,
+   10%) is added once. Reduced or declined quantities go back to the supply's stock. The Treasurer
+   can revise the request until the Chairman decides.
+3. **Chairman** authorizes or declines (with a reason). Before supply, the Chairman can return an
+   authorized request to the Treasurer.
+4. **Treasurer records the supply** (date and note). Deductions start the following month.
+5. **Deductions:**
+   - The Treasurer records a month on the request's page, or uploads a CSV on the new
+     Commodity Deduction page.
+   - Re-recording a month replaces it, and a deduction may not exceed the balance.
+   - The request becomes **Fully repaid** automatically.
+
+Member pages: My Commodity Requests (stage, total, monthly, balance), request details, and
+View Commodity Deduction (balance, monthly deduction and deductions per request; the page was missing).
+The Secretary sees requests read-only. The officer dashboards count commodity requests to review,
+authorize and supply.
+
+Also fixed:
+- **No role checks:** any logged-in user could approve, reject or disburse through `ajax/commodity_ajax.php`. It now:
+  - refuses the old request, decision and disbursement actions ("page has changed");
+  - allows the supply set-up actions to officers only.
+- **Supply items had no stock:** they were saved with `remaining_quantity` 0, so members could not request them (the December 2025 supply). New items start with their full allocation, and the migration repairs items nobody had requested.
+
+| File | Change |
+|---|---|
+| `db/2026-10-13_commodity_workflow.sql` | **New** – database changes (#5 above) |
+| `config/classes/CommodityLoan.php` | **New** – request, review, decision, supply, deductions, lists, shared details page |
+| `ajax/commodity_workflow.php` | **New** – role-checked actions for the workflow |
+| `ajax/commodity_ajax.php` | Role checks; old workflow actions retired |
+| `config/classes/Commodity.php` | Supply items saved with their stock; application items query fixed |
+| `R/commodity_request.php` | Rebuilt request form |
+| `R/view_commodity_request.php`, `R/viewRequestDetails.php` | Member list and details |
+| `R/commodity_deduction.php` | **New** – member's commodity deductions |
+| `Treasurer/view_commodity_request.php`, `Treasurer/viewRequestDetails.php` | Review, supply, single deductions |
+| `Treasurer/commodity_deduction.php`, `Treasurer/uploadCommodityDeduction.php`, `Treasurer/Commodity_repayment_template.csv` | **New** – deductions list and CSV upload |
+| `Chairman/approved_commodity_Request.php`, `Chairman/viewRequestDetails.php` | Authorize, decline, return |
+| `Secretary/view_commodity_request.php`, `Secretary/viewRequestDetails.php` | View only |
+| `config/classes/View.php` | Treasurer menu: Commodity Deduction; Chairman menu: Commodity Requests |
+| `config/classes/Dashboard.php` | Commodity tasks for Treasurer, Chairman and Secretary |
+| `Treasurer/savings_settings.php` | Commodity repayment period setting |
+| `css/dashboard.css` | Stage tabs and commodity page styles |
+
+### Business Loan and Soft Loan application pages redesigned
+
+No database change.
+
+**Layout**
+- Both pages now use one shared form, `config/loans/loan_application_form.php`.
+- At the top, the member sees their savings balance, how much they can borrow, the interest rate and the longest repayment period.
+- The form has four numbered sections: your details, the loan, supplier, guarantor.
+- Repayment periods are shown as buttons.
+- A summary panel works out the interest, total and monthly deduction as the member types.
+
+**When the form is hidden**
+- Instead of the form, a member who already has a loan of that type sees its status and balance.
+- A Soft Loan applicant without target savings gets a link to start target savings.
+
+**Corrected text**
+- The conditions now match the rules: 2× savings balance (was "three times your share capital") and flat interest from Savings Settings.
+- The "[An Interest Free Thrift and Loan Society]" tagline was removed from these pages.
+
+**Bug fixes**
+- Members could not submit the form. The submit check read a misspelled variable (`isloanDeserving`) that was never set, so it always said "You don't have enough funds".
+- The live amount check (`ajax/getTotal_share.php`) used 3× share capital. It now uses the same limit as the server: savings multiple, less loans still owed, and one open loan per type.
+- The account number accepts exactly 10 digits. It was a number field, so leading zeros were dropped and the 10-digit limit was ignored.
+
+**Commodity**
+- `Commodity::getApplicationItems` had a leftover test value (`application_id = 5`). The query failed, and every commodity request detail page (member, Secretary, Treasurer, Chairman) showed no items, so requests could not be approved or disbursed. It now uses the application being viewed.
+
+| File | Change |
+|---|---|
+| `config/loans/loan_application_form.php` | **New** – shared loan application page |
+| `R/business_loan.php`, `R/soft_loan.php` | Now load the shared page |
+| `config/classes/MemberG3.php` | New `loanApplicationContext()` (figures for the page) |
+| `ajax/getTotal_share.php` | Live amount check uses the real loan limit |
+| `js/custom.js` | Submit fix, summary panel, loan type sent with the amount check |
+| `css/dashboard.css` | Loan application styles |
+| `config/classes/Commodity.php` | Application items query fixed |
 
 ### Loan workflow reform (application to repayment)
 
@@ -502,6 +609,15 @@ Files:
 - Many existing loans have two schedule rows from earlier re-uploads (304 rows for 155 loans);
   the latest is used.
 - `fudscoops_loan_repayments.amount_paid` holds whole naira only (kobo are dropped).
+
+### Commodity
+- Special Commodity Request posts to `R/process_commodity_loan.php`, which does not exist; nothing is saved.
+  (Waiting to hear who prices special items.)
+- Commodity counts toward neither the loan limit nor the Generate Report pages yet.
+- Table names in the code (`fudscoops_commodity_Items`, `fudscoops_CommodityBatches`) differ in case
+  from the local copy; check the live database's names.
+- `fudscoops_commodity_Items.quantity` (overall stock) is not reduced when items are supplied; the
+  supply's own stock (`fudscoops_commodity_supply_items.remaining_quantity`) is what limits requests.
 
 ### Shares
 - 564 of 685 holdings recorded before 2026-10-08 are not whole units of ₦3,000 (one is ₦85).
