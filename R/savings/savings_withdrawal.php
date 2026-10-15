@@ -17,6 +17,9 @@
     $balance = (float) $member->getCurrentSavingsAmount($_SESSION['username']);
     $info = (new Dashboard())->memberSavingsInfo($memberId, $employeeId);
     $minMonthlySavings = SavingsG1::getMinMonthlySavings();
+    require_once('../../config/classes/LoanControls.php');
+    $minBalance = LoanControls::withdrawalMinBalance();
+    $maxWithdrawal = LoanControls::maxWithdrawal($memberId);
     $h = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
 
     echo $view->subHeader('../../');
@@ -40,6 +43,10 @@
               <div><div class="fud-stat-label">Monthly savings</div><div class="fud-stat-value">₦<?php echo number_format($info['monthly']); ?></div></div></div>
           </div>
 
+          <?php foreach ((new Dashboard())->recentWithdrawalRejections($memberId) as $rj) { ?>
+            <div class="fud-notice"><i class="mdi mdi-close-circle"></i>
+              <span>Your request of ₦<?php echo number_format((float) $rj['proposed_withrawal_amount'], 2); ?> on <?php echo date('d M Y', strtotime($rj['proposed_date'])); ?> was rejected<?php echo $rj['treasurer_comment'] ? ': ' . $h($rj['treasurer_comment']) : '.'; ?></span></div>
+          <?php } ?>
           <?php if ($info['pending_withdrawal']) { ?>
             <div class="fud-notice"><i class="mdi mdi-clock-outline"></i>
               <span>Your withdrawal request of ₦<?php echo number_format((float) $info['pending_withdrawal']); ?> is awaiting approval.
@@ -58,9 +65,9 @@
                     <div class="input-group fud-amount">
                       <div class="input-group-prepend"><span class="input-group-text">₦</span></div>
                       <input type="number" class="form-control" id="withdrawal_amount" name="withdrawal_amount" min="1"
-                             max="<?php echo max(0, floor($balance)); ?>" step="1" placeholder="0" required>
+                             max="<?php echo $maxWithdrawal; ?>" step="0.01" placeholder="0.00" required>
                     </div>
-                    <small class="d-block mt-2 text-muted">Up to ₦<?php echo number_format($balance, 2); ?>.</small>
+                    <small class="d-block mt-2 text-muted">Up to ₦<?php echo number_format($maxWithdrawal, 2); ?>: ₦<?php echo number_format($minBalance, 2); ?> must stay in your savings.</small>
                   </div>
                 </div>
 
@@ -101,7 +108,8 @@
                       <dt>Balance after</dt><dd id="sumAfter">₦<?php echo number_format($balance, 2); ?></dd>
                     </dl>
                     <ul class="fud-checks">
-                      <li>Keep saving at least ₦<?php echo number_format($minMonthlySavings); ?> a month.</li>
+                      <li>₦<?php echo number_format($minBalance, 2); ?> must stay in your savings.</li>
+                      <li>Keep saving at least ₦<?php echo number_format($minMonthlySavings, 2); ?> a month.</li>
                       <li>One withdrawal request at a time.</li>
                     </ul>
                     <div class="custom-control custom-checkbox mb-3">

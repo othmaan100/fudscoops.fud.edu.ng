@@ -4,6 +4,14 @@ require_once('DB.php');
 class View{
     private $db;
 
+    // ?v=<last change> on the portal's own CSS and JS, so browsers load the new file after an update
+    // instead of a cached old copy (e.g. js/custom.js after a deploy)
+    private static function v($path)
+    {
+        $file = __DIR__ . '/../../' . $path;
+        return is_file($file) ? '?v=' . filemtime($file) : '';
+    }
+
     public function header()
     {
         $r = '
@@ -23,10 +31,10 @@ class View{
           <link rel="stylesheet" href="vendors/datatables.net-bs4/dataTables.bootstrap4.css">
           <!-- End plugin css for this page -->
           <!-- inject:css -->
-          <link rel="stylesheet" href="css/style.css">
+          <link rel="stylesheet" href="css/style.css' . self::v('css/style.css') . '">
           <link rel="stylesheet" href="css/putme.css">
-          <link rel="stylesheet" href="css/sidebar.css">
-          <link rel="stylesheet" href="css/dashboard.css">
+          <link rel="stylesheet" href="css/sidebar.css' . self::v('css/sidebar.css') . '">
+          <link rel="stylesheet" href="css/dashboard.css' . self::v('css/dashboard.css') . '">
           <script src="vendors/base/vendor.bundle.base.js"></script>
 
           <!-- endinject -->
@@ -58,10 +66,10 @@ class View{
           <link rel="stylesheet" href="'.$url.'vendors/datatables.net-bs4/dataTables.bootstrap4.css">
           <!-- End plugin css for this page -->
           <!-- inject:css -->
-          <link rel="stylesheet" href="'.$url.'css/style.css">
+          <link rel="stylesheet" href="'.$url.'css/style.css' . self::v('css/style.css') . '">
           <link rel="stylesheet" href="'.$url.'css/putme.css">
-          <link rel="stylesheet" href="'.$url.'css/sidebar.css">
-          <link rel="stylesheet" href="'.$url.'css/dashboard.css">
+          <link rel="stylesheet" href="'.$url.'css/sidebar.css' . self::v('css/sidebar.css') . '">
+          <link rel="stylesheet" href="'.$url.'css/dashboard.css' . self::v('css/dashboard.css') . '">
           <script src="'.$url.'vendors/base/vendor.bundle.base.js"></script>
 
           <!-- endinject -->
@@ -323,6 +331,7 @@ class View{
                     ['View Share Holders', 'share_holders_view.php'],
                 ]],
                 ['Loans', 'mdi-cash-multiple', 'loans.php'],
+                ['Overdue Loans', 'mdi-alert-circle', 'overdue_loans.php'],
                 ['Commodity Requests', 'mdi-cart-outline', 'approved_commodity_Request.php'],
             ],
             'Operations' => [
@@ -357,16 +366,16 @@ class View{
                 ]],
                 ['Update Share Unit', 'mdi-chart-pie', 'manage_shareunit.php'],
                 ['Loans', 'mdi-cash-multiple', 'loans.php'],
+                ['Overdue Loans', 'mdi-alert-circle', 'overdue_loans.php'],
             ],
             'Commodity' => [
                 ['Manage Commodity', 'mdi-cart-outline', 'ui-commodity', [
-                    ['Add Commodity Name', 'add_commodity_name.php'],
+                    ['Commodity Supplies', 'add_commodity_name.php'],
                     ['View Commodity Names', 'view_commodity_name.php'],
                     ['Add Item Type', 'add_item_type.php'],
                     ['View Item Types', 'view_item_types.php'],
                     ['Add New Item', 'add_new_item.php'],
                     ['View Items', 'view_items.php'],
-                    ['Schedule Commodity Supply', 'schedule_commodity.php'],
                     ['View Commodity Requests', 'view_commodity_request.php'],
                 ]],
             ],
@@ -398,6 +407,8 @@ class View{
                     ['View Share Holders', 'share_holders_view.php'],
                 ]],
                 ['Loans', 'mdi-cash-multiple', 'loans.php'],
+                ['Overdue Loans', 'mdi-alert-circle', 'overdue_loans.php'],
+                ['Loan Overpayments', 'mdi-cash-refund', 'overpayments.php'],
                 ['Commodity Requests', 'mdi-cart-outline', 'view_commodity_request.php'],
                 ['Commodity Deduction', 'mdi-cart-arrow-down', 'commodity_deduction.php'],
             ],
@@ -426,6 +437,7 @@ class View{
             'Settings' => [
                 ['Savings Settings', 'mdi-tune', 'savings_settings.php'],
                 ['Update Members Staff No', 'mdi-account-card-details', 'update_sp.php'],
+                ['Password Reset', 'mdi-lock-reset', 'password.php'],
             ],
         ]);
     }
@@ -456,6 +468,7 @@ class View{
             ],
             'My Cooperative' => [
                 ['Savings', 'mdi-wallet', 'ui-savings', [
+                    ['Savings History', '/R/savings/savings_history.php'],
                     ['Update Savings', '/R/savings/update_savings.php'],
                     ['Withdraw Savings', '/R/savings/savings_withdrawal.php'],
                     ['Target Savings Request', '/R/savings/target_savings_request.php'],
@@ -480,6 +493,7 @@ class View{
                     ['Soft Loan Request', '/R/soft_loan.php'],
                     ['View Loan Approval', '/R/view_loan_approval.php'],
                     ['View Loan Deduction', '/R/view_laon_deduction.php'],
+                    ['Loan Overpayments', '/R/overpayment.php'],
                 ]],
             ],
         ]);
@@ -525,7 +539,7 @@ class View{
             <!-- Custom js for this page-->
             <script src="js/dashboard.js"></script>
             <!-- End custom js for this page-->
-            <script src="js/custom.js"></script>
+            <script src="js/custom.js' . self::v('js/custom.js') . '"></script>
             </body>
 
             </html>
@@ -562,7 +576,7 @@ class View{
             <!-- Custom js for this page-->
             <script src="../js/dashboard.js"></script>
             <!-- End custom js for this page-->
-            <script src="../js/custom.js"></script>
+            <script src="../js/custom.js' . self::v('js/custom.js') . '"></script>
             </body>
 
             </html>
@@ -599,7 +613,7 @@ class View{
             <!-- Custom js for this page-->
             <script src="'.$url.'js/dashboard.js"></script>
             <!-- End custom js for this page-->
-            <script src="'.$url.'js/custom.js"></script>
+            <script src="'.$url.'js/custom.js' . self::v('js/custom.js') . '"></script>
             </body>
 
             </html>

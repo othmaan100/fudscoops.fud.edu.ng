@@ -12,5 +12,7 @@ require_once '../config/classes/MemberG3.php';
         }
          $loan_id = $db->cleanData(isset($_POST['loan_id']) ? $_POST['loan_id'] : '');
          $accept = !(isset($_POST['decision']) && $_POST['decision'] === 'decline');
-         echo $endorse->updateGuaranto($loan_id, $accept);
+         // Optional reason when declining (shown to the applicant and the officers)
+         $comment = isset($_POST['guarantor_comment']) ? trim(strip_tags($_POST['guarantor_comment'])) : '';
+         echo $endorse->updateGuaranto($loan_id, $accept, null, $comment);
 ?>

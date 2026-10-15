@@ -1,144 +1,90 @@
-<?php 
-        require_once('../config/classes/View.php');
-        require_once('../config/classes/User.php');
-        //require_once('../classes/Putme.php');
-        $view = new View();
-        $user = new User();
-        //$putme = new Putme();
-
-        //$user->is_authenticated('../auth/logout.php');
-        //$user->isICT('../auth/logout.php');
-        
-        if (isset($_POST['add'])) {
-          $putme->updateAmount($_POST['session'],$_POST['amount']);
-        }
-        echo $view->subHeader('../');
-        ?>
-        <!-- partial:partials/_navbar.html -->
-        <?php  echo $view->subPartialNav('../')?>
-        <!-- partial -->
-        <div class="container-fluid page-body-wrapper">
-          <!-- partial:partials/_sidebar.html -->
-          <?php  echo $view->treasurerSideNav()?>
-      <!-- partial -->
-       <!-- DataTables CSS -->
-                <link rel="stylesheet" href="https://cdn.datatables.net/1.11.5/css/jquery.dataTables.min.css">
-                
-                <!-- DataTables Buttons CSS -->
-                <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.2.3/css/buttons.dataTables.min.css">
-                
-                <!-- jQuery (required for DataTables) -->
-                <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-                
-                <!-- DataTables JS -->
-                <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
-                
-                <!-- DataTables Buttons JS -->
-                <script src="https://cdn.datatables.net/buttons/2.2.3/js/dataTables.buttons.min.js"></script>
-                
-                <!-- JSZip (required for Excel export) -->
-                <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.3/jszip.min.js"></script>
-                
-                <!-- pdfMake (required for PDF export) -->
-                <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/pdfmake.min.js"></script>
-                
-                <!-- vfs_fonts (required for PDF export) -->
-                <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/vfs_fonts.js"></script>
-                
-                <!-- Buttons for export options (CSV, Excel, PDF, etc.) -->
-                <script src="https://cdn.datatables.net/buttons/2.2.3/js/buttons.html5.min.js"></script>
-                <script src="https://cdn.datatables.net/buttons/2.2.3/js/buttons.print.min.js"></script>
-
+<?php
+    // Upload a month's loan deductions (CSV). Processed by uploadLoansDeductionExcel.php (js/custom.js #upload_loans_deduction).
+    require_once('../config/classes/View.php');
+    require_once('../config/classes/User.php');
+    require_once('../config/classes/DB.php');
+    $view = new View();
+    $user = new User();
+    if (!User::is_authenticated('../auth/') || !User::isBur('../auth/logout.php')) {
+        exit();
+    }
+    $types = (new DB())->getConnection()->query("SELECT loan_type_id, loan_type_name FROM fudscoops_loan_type WHERE is_deleted = 0 ORDER BY loan_type_id")->fetchAll(PDO::FETCH_KEY_PAIR);
+    $h = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
+    echo $view->subHeader('../');
+?>
+    <?php echo $view->subPartialNav('../'); ?>
+    <div class="container-fluid page-body-wrapper">
+      <?php echo $view->treasurerSideNav(); ?>
       <div class="main-panel">
-          <div class="content-wrapper">
-            <div class="row">
-              <div class="col-md-12 grid-margin">
-                <div class="d-flex justify-content-between flex-wrap">
-                  <div class="d-flex align-items-end card stretch-card flex-wrap">
-                    <div class="mr-md-5 card-body mr-xl-5">
-                      <h2>UPLOAD LOAN DEDUCTION</h2>
-                    </div>                  
-                  </div>
-                  
+        <div class="content-wrapper fud-dash fud-apply">
+
+          <div class="fud-hero">
+            <div class="fud-hero-date">Loans</div>
+            <h2><i class="mdi mdi-cloud-upload"></i> Upload Loan Deductions</h2>
+            <p>Record a whole month of salary deductions at once from a CSV file.</p>
+            <div class="fud-hero-actions">
+              <a href="loan_deduction.php"><i class="mdi mdi-file-document-box"></i> Loan Deductions (list to record)</a>
+              <a href="Loan_repayment_template.csv" download><i class="mdi mdi-download"></i> Blank template</a>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col-lg-7">
+              <div class="fud-section">
+                <div class="fud-section-head"><h5><i class="mdi mdi-file-upload"></i> Upload a file</h5></div>
+                <div class="fud-section-body">
+                  <form id="loanDeductionUpload" enctype="multipart/form-data" onsubmit="return false;">
+                    <div class="form-group">
+                      <label for="loanId">Loan type</label>
+                      <select class="form-control" name="loanId" id="loanId" required>
+                        <option value="">Select the loan type</option>
+                        <?php foreach ($types as $id => $name) { ?>
+                          <option value="<?php echo (int) $id; ?>" <?php echo count($types) === 1 ? 'selected' : ''; ?>><?php echo $h($name); ?></option>
+                        <?php } ?>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label for="uploadFile">CSV file</label>
+                      <label class="fud-file" for="uploadFile">
+                        <i class="mdi mdi-file-delimited"></i>
+                        <span id="uploadFileName">Choose a .csv file (up to 500KB)</span>
+                        <input type="file" id="uploadFile" name="uploadFile" accept=".csv" required>
+                      </label>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-lg" name="upload_loans_deduction" id="upload_loans_deduction">
+                      <i class="mdi mdi-cloud-upload"></i> Upload deductions</button>
+                  </form>
                 </div>
               </div>
             </div>
-            <div class="col-md-12 grid-margin stretch-card">
-              <div class="card">
-                <div class="card-body">                  
-                    <div class="row">
-                      <div class="col-md-12 card">
-                        <form class="form-vertical"  method ="POST"target="_blank" id=""  enctype="multipart/form-data"  >                                                  
-                          <div class="row">
-                            
-                            <div class="col-md-2 col-sm-6 col-sx-12">
-                              <div class="form-group">
-                                <label for="exampleInputUsername1">LOAN TYPE</label>
-                                <select class="form-control form-control-sm" name="loanId" id="loanId" required>
-                                    <option value="">-- Select Loan --</option>
-                                    <option value="1">Business Loan</option>
-                                    <option value="2">Soft Loan</option>
-                                </select>
-
-                              </div>
-                            </div>
-                            <div class="col-md-3 col-sm-6 col-sx-12">
-                              <div class="form-group">
-                                <label for="exampleInputUsername1">FILE</label>
-                                <input type="file" id="uploadFile" required name="uploadFile" class="form-control form-control-sm" />
-                              </div>
-                            </div>
-                            <div class="col-md-1 col-sm-6 col-sx-12">
-                              <div class="form-group"><br/>
-                                <button type="submit" class="btn btn-lg btn-danger"  name="upload_loans_deduction" id="upload_loans_deduction" >
-                                  UPLOAD
-                                </button>
-                              </div>
-                            </div>
-                            
-                              <div class="col-lg-4 mt-4 offset-2">
-                                <div class="panel panel-warning">
-                                    <div class="panel-heading">Guide</div>
-                                    <div class="panel-body">
-                                        <ol>
-                                            <li>
-                                                <a href="Loan_repayment_template.csv" download class="text-primary">Download</a> Template.
-                                            </li>
-                                            <li>Always follow the above template to upload loan deductions.</li>
-                                            <li>Columns: staff number, repayment month (mm/dd/yyyy), and the <b>amount actually deducted</b>. Leave the amount blank to record the full monthly instalment.</li>
-                                            <li>Each deduction goes to the member's loan of the selected type that is being repaid. Uploading the same month again updates it. Loans are marked fully repaid automatically.</li>
-                                            <li>Ensure your file has a <b class="text-danger">.csv</b> extension.</li>
-                                        </ol>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                             <div id="msg" class="row text-center">
-                              <h3 id="loading" hidden><img src="../../img/loading.gif" alt=""> <i>Uploading loan Deductions please wait...</i></h3>
-                            </div>    
-                            
-                          </div>                                                    
-                        </form>
-                      </div>
-                      
+            <div class="col-lg-5">
+              <div class="fud-section">
+                <div class="fud-section-head"><h5><i class="mdi mdi-information-outline"></i> How it works</h5></div>
+                <div class="fud-section-body">
+                  <ol class="fud-howto">
+                    <li>On <a href="loan_deduction.php">Loan Deductions</a>, choose the month and download the loans <strong>to record</strong>,
+                      or start from the <a href="Loan_repayment_template.csv" download>blank template</a>.</li>
+                    <li>Columns: <strong>Staff Number</strong>, <strong>Repayment Month</strong> (mm/dd/yyyy) and the
+                      <strong>Amount Deducted</strong>. Leave the amount blank to record the full monthly instalment.</li>
+                    <li>Correct each amount to what payroll actually deducted, save as <strong>CSV</strong> and upload it here.</li>
+                  </ol>
+                  <ul class="fud-checks mb-0">
+                    <li>Each row goes to the member's loan of the chosen type that is being repaid.</li>
+                    <li>Uploading a month again replaces that month; nothing is counted twice.</li>
+                    <li>Loans are marked fully repaid automatically; overpayments are flagged for the member.</li>
+                  </ul>
                 </div>
               </div>
             </div>
           </div>
-        <!-- content-wrapper ends -->
-        <?php 
-          echo $view->subFooter('../');
-          ?>
-          
-          
-          
-           <script>
-$(document).ready(function() {
-    $('#loanTable').DataTable({
-        dom: 'Bfrtip',  // Defines the button layout
-        buttons: [
-            'copy', 'csv', 'excel', 'pdf', 'print'
-        ]
-    });
+
+          <div id="msg"></div>
+
+        </div>
+        <?php echo $view->subFooter('../'); ?>
+
+<script>
+document.getElementById('uploadFile').addEventListener('change', function () {
+    document.getElementById('uploadFileName').textContent = this.files.length ? this.files[0].name : 'Choose a .csv file (up to 500KB)';
 });
 </script>

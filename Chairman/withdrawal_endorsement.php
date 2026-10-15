@@ -91,8 +91,7 @@ echo $view->subHeader('../');
                               <td class="d-flex">
                                 <button class="btn btn-sm btn-success chairman_approve_withdrawal me-1" 
                                         data-withrawal="<?php echo $wid; ?>" 
-                                        data-approve="approveWithdrawal"
-                                        onclick="return confirm('Approve this single request?');">
+                                        data-approve="approveWithdrawal">
                                   Approve
                                 </button>
                                 <form class="d-inline" method="POST" action="reject_withdrawal.php" onsubmit="return confirm('Reject this request?');">

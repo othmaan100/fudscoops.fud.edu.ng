@@ -294,36 +294,51 @@ public function login($username, $password) {
     return -1; // Invalid login
 }
     
-    public function resetPassword($username) 
+    // Resets a member's or applicant's password to their staff number (they log in with it and change it).
+    // Officer accounts (Secretary, Treasurer, Chairman, admin) cannot be reset this way.
+    // Returns 1 reset, 0 username not found, -2 officer account, -1 database error.
+    public function resetPassword($username)
     {
-        $db = new DB();
-        $con = $db->getConnection();
-    
-        $username = strtoupper(trim($username));
-        $password = md5($username);
-    
-        /* Step 1: Check if username exists */
-        $check = "SELECT username FROM user WHERE username = :username LIMIT 1";
-        $stm = $con->prepare($check);
-        $stm->bindParam(':username', $username, PDO::PARAM_STR);
-        $stm->execute();
-    
-        if ($stm->rowCount() == 0) {
-            return 0; // Username does not exist
+        $con = (new DB())->getConnection();
+        $username = strtoupper(trim((string) $username));
+        $stm = $con->prepare("SELECT username, access_level FROM user WHERE username = :username LIMIT 1");
+        $stm->execute([':username' => $username]);
+        $account = $stm->fetch(PDO::FETCH_ASSOC);
+        if (!$account) {
+            return 0;
         }
-    
-        /* Step 2: Reset password */
-        $sql = "UPDATE user SET password = :password WHERE username = :username";
-        $stm2 = $con->prepare($sql);
-        $stm2->bindParam(':password', $password, PDO::PARAM_STR);
-        $stm2->bindParam(':username', $username, PDO::PARAM_STR);
-    
-        if (!$stm2->execute()) {
-            return -1; // SQL error
+        if (!in_array((int) $account['access_level'], [0, 1], true)) {
+            return -2;
         }
-    
-        return 1; // Password successfully reset
+        $stm2 = $con->prepare("UPDATE user SET password = :password WHERE username = :username");
+        if (!$stm2->execute([':password' => md5($account['username']), ':username' => $account['username']])) {
+            return -1;
+        }
+        return 1;
     }
+
+    // Who a staff number's login belongs to, for the password reset pages: null if there is no login
+    public function passwordResetLookup($username)
+    {
+        $con = (new DB())->getConnection();
+        $stm = $con->prepare("SELECT u.username, u.access_level, e.title, e.fname, e.lname, e.oname, e.dept
+                              FROM user u LEFT JOIN employee e ON e.sp_no = u.username
+                              WHERE u.username = :username LIMIT 1");
+        $stm->execute([':username' => strtoupper(trim((string) $username))]);
+        $row = $stm->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return null;
+        }
+        $roles = [0 => 'Membership applicant', 1 => 'Member', 2 => 'Secretary', 3 => 'Treasurer', 4 => 'Chairman', 5 => 'Administrator'];
+        return [
+            'username'  => $row['username'],
+            'name'      => trim(preg_replace('/\s+/', ' ', $row['title'] . ' ' . $row['fname'] . ' ' . $row['lname'] . ' ' . $row['oname'])),
+            'dept'      => in_array(trim((string) $row['dept']), ['', '0'], true) ? '' : (string) $row['dept'],
+            'role'      => isset($roles[(int) $row['access_level']]) ? $roles[(int) $row['access_level']] : 'Other',
+            'can_reset' => in_array((int) $row['access_level'], [0, 1], true),
+        ];
+    }
+
 
     public function staffId($sp)
     {

@@ -490,7 +490,7 @@ public function treasurerApproveMembership($employeeId, $amount) {
                 WHERE employee_id = :employee_id
                   AND NOT (chairman_approval = 1 AND treasurer_approval = 1)";
         $stmt = $con->prepare($sql);
-        $stmt->bindParam(':amount', $amount, PDO::PARAM_INT);
+        $stmt->bindParam(':amount', $amount, PDO::PARAM_STR);
         $stmt->bindParam(':employee_id', $employeeId, PDO::PARAM_INT);
         $stmt->execute();
 
@@ -595,26 +595,70 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
 
 
     
-    public function treasurerApproveWithdrawal($withrawals_id, $approved_amount) {
+    // Treasurer approves an amount: the request goes to the Chairman (status 1). It can be changed until the Chairman decides.
+    public function treasurerApproveWithdrawal($withrawals_id, $approved_amount, $comment = null, $by = null) {
         $db = new DB();
         $con = $db->getConnection();
         $user = new User();
-    
-        $sql = "UPDATE fudscoops_withrawals 
-                SET approved_withrawal_amount = :approved_amount 
+        $state = $con->prepare("SELECT status, chairman_approval FROM fudscoops_withrawals WHERE withrawals_id = :id");
+        $state->execute([':id' => $withrawals_id]);
+        $state = $state->fetch(PDO::FETCH_ASSOC);
+        if (!$state) {
+            return 'Withdrawal request not found.';
+        }
+        if ((int) $state['chairman_approval'] !== 0 || (int) $state['status'] === -1) {
+            return 'This request has already been decided.';
+        }
+
+        // Kobo allowed; the minimum savings balance must stay in the account (LoanControls)
+        require_once('LoanControls.php');
+        $approved_amount = preg_replace('/[^0-9.]/', '', (string) $approved_amount);
+        if ($approved_amount === '' || !is_numeric($approved_amount) || (float) $approved_amount <= 0) {
+            return 'Enter the approved amount.';
+        }
+        $approved_amount = (string) round((float) $approved_amount, 2);
+        $who = $con->prepare("SELECT member_id FROM fudscoops_withrawals WHERE withrawals_id = :id");
+        $who->execute([':id' => $withrawals_id]);
+        if ($limit = LoanControls::withdrawalLimitError($who->fetchColumn(), $approved_amount)) {
+            return $limit;
+        }
+
+        // status 1 puts it in the Chairman's list (it stayed 0 before, so approved requests never reached the Chairman)
+        $sql = "UPDATE fudscoops_withrawals
+                SET approved_withrawal_amount = :approved_amount, status = 1,
+                    treasurer_comment = COALESCE(:comment, treasurer_comment),
+                    treasurer_decided_by = COALESCE(:by, treasurer_decided_by), treasurer_decided_at = NOW()
                 WHERE withrawals_id = :withrawals_id";
-    
+
         $stmt = $con->prepare($sql);
         $stmt->bindParam(':withrawals_id', $withrawals_id, PDO::PARAM_INT);
-        $stmt->bindParam(':approved_amount', $approved_amount, PDO::PARAM_INT);
-    
+        $stmt->bindParam(':approved_amount', $approved_amount, PDO::PARAM_STR);
+        $comment = $comment === null ? null : trim((string) $comment);
+        $stmt->bindValue(':comment', $comment === '' ? null : $comment);
+        $stmt->bindValue(':by', $by);
+
         $secretaryApproveWithdrawal = $stmt->execute();
-    
+
         if ($secretaryApproveWithdrawal) {
             return 1;
         } else {
             return -1;
         }
+}
+
+    // Treasurer rejects a savings withdrawal request (status -1); the reason is shown to the member. Returns 1 or a message.
+    public function treasurerRejectWithdrawal($withrawals_id, $reason, $by) {
+        $reason = trim((string) $reason);
+        if ($reason === '') {
+            return 'Give the reason for rejecting; the member will see it.';
+        }
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("UPDATE fudscoops_withrawals
+                               SET status = -1, approved_withrawal_amount = 0, treasurer_comment = :c,
+                                   treasurer_decided_by = :by, treasurer_decided_at = NOW()
+                               WHERE withrawals_id = :id AND chairman_approval = 0 AND status IN (0, 1)");
+        $stmt->execute([':c' => $reason, ':by' => $by, ':id' => $withrawals_id]);
+        return $stmt->rowCount() ? 1 : 'This request has already been decided.';
 }
   public function chairmanApproveWithdrawal($withrawals_id) {
         $db = new DB();
@@ -622,7 +666,16 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
         $user = new User();
         
         //return $withrawals_id;
-    
+
+        // The minimum savings balance must still stay after this withdrawal (savings may have changed since)
+        require_once('LoanControls.php');
+        $w = $con->prepare("SELECT member_id, approved_withrawal_amount FROM fudscoops_withrawals WHERE withrawals_id = :id");
+        $w->execute([':id' => $withrawals_id]);
+        $w = $w->fetch(PDO::FETCH_ASSOC);
+        if ($w && ($limit = LoanControls::withdrawalLimitError($w['member_id'], $w['approved_withrawal_amount']))) {
+            return 'Cannot approve. ' . $limit;
+        }
+
         $sql = "UPDATE fudscoops_withrawals SET chairman_approval = '1' WHERE fudscoops_withrawals.withrawals_id = :withrawals_id";
     
         $stmt = $con->prepare($sql);
@@ -642,14 +695,33 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
         $db = new DB();
         $con = $db->getConnection();
         $user = new User();
-    
-        $sql = "UPDATE fudscoops_complete_withrawal 
-                SET approved_amount = :approved_amount 
+
+        // Amount paid out: savings less what is paid from savings for loans/commodity (a leaving member takes the rest)
+        require_once('LoanControls.php');
+        $approved_amount = preg_replace('/[^0-9.]/', '', (string) $approved_amount);
+        if ($approved_amount === '' || !is_numeric($approved_amount) || (float) $approved_amount <= 0) {
+            return 'Enter the amount to pay out.';
+        }
+        $approved_amount = (string) round((float) $approved_amount, 2);
+        $req = $con->prepare("SELECT c.employee_id, c.settle_from_savings, m.member_id FROM fudscoops_complete_withrawal c
+                              JOIN fudscoops_member m ON m.employee_id = c.employee_id WHERE c.comp_withdrwal_id = :id");
+        $req->execute([':id' => $withrawals_id]);
+        $req = $req->fetch(PDO::FETCH_ASSOC);
+        if (!$req) {
+            return 'Request not found.';
+        }
+        $ob = LoanControls::leavingObligations($req['member_id'], $req['employee_id'], LoanControls::savingsBalance($req['member_id']));
+        if ($limit = LoanControls::withdrawalLimitError($req['member_id'], $approved_amount, $req['settle_from_savings'] ? $ob['total_owed'] : 0, false)) {
+            return $limit;
+        }
+
+        $sql = "UPDATE fudscoops_complete_withrawal
+                SET approved_amount = :approved_amount
                 WHERE comp_withdrwal_id  = :withrawals_id";
-    
+
         $stmt = $con->prepare($sql);
         $stmt->bindParam(':withrawals_id', $withrawals_id, PDO::PARAM_INT);
-        $stmt->bindParam(':approved_amount', $approved_amount, PDO::PARAM_INT);
+        $stmt->bindParam(':approved_amount', $approved_amount, PDO::PARAM_STR);
     
         $secretaryApproveWithdrawal = $stmt->execute();
     
@@ -663,8 +735,45 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
         $db = new DB();
         $con = $db->getConnection();
         $user = new User();
-    
-        $sql = "UPDATE fudscoops_complete_withrawal SET chairman_approval = '1' WHERE fudscoops_complete_withrawal.comp_withdrwal_id = :withrawals_id";
+
+        // Check again what the member owes: a leaving member must owe nothing and guarantee no open loan.
+        // If they chose to pay it from savings, post those payments now (LoanControls::settleFromSavings).
+        require_once('LoanControls.php');
+        $stmt = $con->prepare("SELECT c.*, e.sp_no, m.member_id FROM fudscoops_complete_withrawal c
+                               JOIN employee e ON e.employee_id = c.employee_id
+                               JOIN fudscoops_member m ON m.employee_id = c.employee_id
+                               WHERE c.comp_withdrwal_id = :id AND c.chairman_approval = 0");
+        $stmt->execute([':id' => $withrawals_id]);
+        $request = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$request) {
+            return 'This request is not awaiting approval.';
+        }
+        $obligations = LoanControls::leavingObligations($request['member_id'], $request['employee_id'],
+                                                        (float) $this->getCurrentSavingsAmount($request['sp_no']));
+        if ($obligations['blockers']) {
+            return 'Cannot approve: ' . implode(' ', $obligations['blockers']);
+        }
+        // The amount paid out cannot be more than the savings left after what is paid to loans/commodity
+        if ($limit = LoanControls::withdrawalLimitError($request['member_id'], $request['approved_amount'],
+                                                         $request['settle_from_savings'] ? $obligations['total_owed'] : 0, false)) {
+            return 'Cannot approve. ' . $limit;
+        }
+        if ($obligations['total_owed'] > 0) {
+            if (!$request['settle_from_savings']) {
+                return 'Cannot approve: the member still owes ₦' . number_format($obligations['total_owed'], 2) . ' on loans or commodity.';
+            }
+            if (!$obligations['can_settle']) {
+                return 'Cannot approve: the member\'s savings are less than the ₦' . number_format($obligations['total_owed'], 2) . ' they owe.';
+            }
+            $settled = LoanControls::settleFromSavings($obligations, isset($_SESSION['username']) ? $_SESSION['username'] : 'Chairman');
+            if ($settled !== 1) {
+                return 'Cannot approve: ' . $settled;
+            }
+            $con->prepare("UPDATE fudscoops_complete_withrawal SET amount_owed = :o, settled_at = NOW() WHERE comp_withdrwal_id = :id")
+                ->execute([':o' => $obligations['total_owed'], ':id' => $withrawals_id]);
+        }
+
+        $sql = "UPDATE fudscoops_complete_withrawal SET chairman_approval = '1', date_approved = NOW() WHERE fudscoops_complete_withrawal.comp_withdrwal_id = :withrawals_id";
     
         $stmt = $con->prepare($sql);
         $stmt->bindParam(':withrawals_id', $withrawals_id, PDO::PARAM_INT);
@@ -699,6 +808,17 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
         // Pending withdrawal exists → return -2
         if ($row && $row['status'] == 0) {
             return -2;
+        }
+
+        // Kobo allowed; the minimum savings balance must stay in the account (LoanControls)
+        require_once('LoanControls.php');
+        $withrawals_amount = preg_replace('/[^0-9.]/', '', (string) $withrawals_amount);
+        if ($withrawals_amount === '' || !is_numeric($withrawals_amount) || (float) $withrawals_amount <= 0) {
+            return 'Enter the amount to withdraw.';
+        }
+        $withrawals_amount = round((float) $withrawals_amount, 2);
+        if ($limit = LoanControls::withdrawalLimitError($member_id, $withrawals_amount)) {
+            return $limit;
         }
     
         // Insert new withdrawal
@@ -894,6 +1014,10 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
         if ($total_rows_found > 0) {
             $row = $stm->fetch(PDO::FETCH_ASSOC);
             $r = $row['totalwithawals'];
+            // plus approved complete withdrawals
+            $stc = $con->prepare("SELECT (SELECT COALESCE(SUM(c.approved_amount + CASE WHEN c.settled_at IS NOT NULL THEN c.amount_owed ELSE 0 END), 0) FROM fudscoops_complete_withrawal c JOIN fudscoops_member cm ON cm.employee_id = c.employee_id WHERE cm.member_id = :member_id AND c.chairman_approval = 1 AND COALESCE(c.complete_withrawal_is_deleted, 0) = 0)");
+            $stc->execute([':member_id' => $member_id]);
+            $r = (float) $r + (float) $stc->fetchColumn();
         } else {
             $r = 0;
         }
@@ -964,6 +1088,10 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
         $stm_withdrawals->execute();
         $result_withdrawals = $stm_withdrawals->fetch(PDO::FETCH_ASSOC);
         $total_withdrawals = $result_withdrawals['total_withdrawals'] ?? 0;
+        // Approved complete withdrawals (paid out, plus loans and commodity settled from savings)
+        $stm_complete = $con->prepare("SELECT (SELECT COALESCE(SUM(c.approved_amount + CASE WHEN c.settled_at IS NOT NULL THEN c.amount_owed ELSE 0 END), 0) FROM fudscoops_complete_withrawal c JOIN fudscoops_member cm ON cm.employee_id = c.employee_id WHERE cm.member_id = :member_id AND c.chairman_approval = 1 AND COALESCE(c.complete_withrawal_is_deleted, 0) = 0)");
+        $stm_complete->execute([':member_id' => $member_id]);
+        $total_withdrawals += (float) $stm_complete->fetchColumn();
         
         // Calculate the difference
         $difference = $total_savings - $total_withdrawals;
@@ -1077,7 +1205,7 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
               next_of_kin_gsm=:next_of_kin_gsm,next_of_kin_address=:next_of_kin_address, treasurer_approval=0
               WHERE employee_id=:employeeid";
               $stmt = $con->prepare($sql);
-              $stmt->bindParam(':monthly_savings', $monthly_savings,PDO::PARAM_INT);
+              $stmt->bindParam(':monthly_savings', $monthly_savings, PDO::PARAM_STR);
               $stmt->bindParam(':next_of_kin_name', $next_of_kin_name,PDO::PARAM_STR);
               $stmt->bindParam(':next_of_kin_gsm', $next_of_kin_gsm,PDO::PARAM_STR);
               $stmt->bindParam(':next_of_kin_address', $next_of_kin_address,PDO::PARAM_STR);
@@ -1097,7 +1225,7 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
                 $stmt = $con->prepare($sql);
                 // Bind parameters
                 $stmt->bindParam(':employeeid', $employeeid,PDO::PARAM_STR);
-                $stmt->bindParam(':monthly_savings', $monthly_savings,PDO::PARAM_INT);
+                $stmt->bindParam(':monthly_savings', $monthly_savings, PDO::PARAM_STR);
                 $stmt->bindParam(':next_of_kin_name', $next_of_kin_name,PDO::PARAM_STR);
                 $stmt->bindParam(':next_of_kin_gsm', $next_of_kin_gsm,PDO::PARAM_STR);
                 $stmt->bindParam(':next_of_kin_address', $next_of_kin_address,PDO::PARAM_STR);
@@ -1391,6 +1519,14 @@ public function getSecretaryMembershipDecision($member_id) {
         $member_id = htmlspecialchars($member_infor['member_id']);
         $applicantName = htmlspecialchars($member_infor['fname'] . ' ' . $loanDetails['lname']);
         $staffNo = htmlspecialchars($member_infor['sp_no']);
+        // Payslips for the last three months of this year
+        $payslipLinks = '';
+        for ($k = 1; $k <= 3; $k++) {
+            $time = strtotime("first day of -$k month");
+            if (date('Y', $time) == date('Y')) {
+                $payslipLinks .= " <a class='ml-2' href='slip.php?legacy=" . urlencode($member_infor['sp_no']) . "&s=" . date('n', $time) . "'>" . date('F', $time) . "</a>";
+            }
+        }
         $department = htmlspecialchars($member_infor['dept']);
         $gsmNo = htmlspecialchars($member_infor['phone_no']);
         $bank = htmlspecialchars($member_infor['bank']);
@@ -1474,10 +1610,7 @@ public function getSecretaryMembershipDecision($member_id) {
                          
                          <hr>
                       
-                        <p><strong><a href='slip.php?legacy=".$member_infor['sp_no']."&s=".$m1."'>Download Applicant $month_name1 Payslip</a> &nbsp;
-                        <a href='slip.php?legacy=".$member_infor['sp_no']."&s=".$m2."'>Download Applicant $month_name2 Payslip</a> &nbsp; 
-                        <a href='slip.php?legacy=".$member_infor['sp_no']."&s=".$m3."'>Download Applicant $month_name3 Payslip</a>
-                        </strong> </p>
+                        <p><strong>Payslips:</strong> $payslipLinks</p>
                         
                           <div class='form-section'>
                             $decisionSection
@@ -1540,15 +1673,23 @@ public function getTreasurerWithdrawalDecision($withrawals_id) {
        $sp_no = htmlspecialchars($member_infor['sp_no']);
        $employee_id = htmlspecialchars($member_infor['employee_id']);
         $member_id = htmlspecialchars($member_infor['member_id']);
-        $applicantName = htmlspecialchars($member_infor['fname'] . ' ' . $loanDetails['lname']);
+        $applicantName = htmlspecialchars($member_infor['fname'] . ' ' . $member_infor['lname']);
         $staffNo = htmlspecialchars($member_infor['sp_no']);
         $department = htmlspecialchars($member_infor['dept']);
         $gsmNo = htmlspecialchars($member_infor['phone_no']);
-        $bank = htmlspecialchars($member_infor['bank']);
-        $acctNo = htmlspecialchars($member_infor['acct_no']);
+        $bank = htmlspecialchars(isset($member_infor['bank']) ? (string) $member_infor['bank'] : '');
+        $acctNo = htmlspecialchars(isset($member_infor['acct_no']) ? (string) $member_infor['acct_no'] : '');
         $address = htmlspecialchars($member_infor['permanent_address']);
         $appointmentType = htmlspecialchars($member_infor['nature_of_appo']);
         $proposed_monthly_savings = htmlspecialchars($member_infor['proposed_monthly_savings']);
+
+        $payslipLinks = '';
+        for ($k = 1; $k <= 3; $k++) {
+            $time = strtotime("first day of -$k month");
+            if (date('Y', $time) == date('Y')) {
+                $payslipLinks .= " <a class='ml-2' href='slip.php?legacy=" . urlencode($member_infor['sp_no']) . "&s=" . date('n', $time) . "'>" . date('F', $time) . "</a>";
+            }
+        }
         
       
         // Output the professional header and layout
@@ -1593,10 +1734,7 @@ public function getTreasurerWithdrawalDecision($withrawals_id) {
                          
                          <hr>
                       
-                        <p><strong><a href='slip.php?legacy=".$member_infor['sp_no']."&s=".$m1."'>Download Applicant $month_name1 Payslip</a> &nbsp;
-                        <a href='slip.php?legacy=".$member_infor['sp_no']."&s=".$m2."'>Download Applicant $month_name2 Payslip</a> &nbsp; 
-                        <a href='slip.php?legacy=".$member_infor['sp_no']."&s=".$m3."'>Download Applicant $month_name3 Payslip</a>
-                        </strong> </p>
+                        <p><strong>Payslips:</strong> $payslipLinks</p>
                         
                           <div class='form-section'>
                             <form class='membership-decision-form'>
@@ -1691,15 +1829,23 @@ public function getWithdrawal_details($withrawals_id) {
        $sp_no = htmlspecialchars($member_infor['sp_no']);
        $employee_id = htmlspecialchars($member_infor['employee_id']);
         $member_id = htmlspecialchars($member_infor['member_id']);
-        $applicantName = htmlspecialchars($member_infor['fname'] . ' ' . $loanDetails['lname']);
+        $applicantName = htmlspecialchars($member_infor['fname'] . ' ' . $member_infor['lname']);
         $staffNo = htmlspecialchars($member_infor['sp_no']);
         $department = htmlspecialchars($member_infor['dept']);
         $gsmNo = htmlspecialchars($member_infor['phone_no']);
-        $bank = htmlspecialchars($member_infor['bank']);
-        $acctNo = htmlspecialchars($member_infor['acct_no']);
+        $bank = htmlspecialchars(isset($member_infor['bank']) ? (string) $member_infor['bank'] : '');
+        $acctNo = htmlspecialchars(isset($member_infor['acct_no']) ? (string) $member_infor['acct_no'] : '');
         $address = htmlspecialchars($member_infor['permanent_address']);
         $appointmentType = htmlspecialchars($member_infor['nature_of_appo']);
         $proposed_monthly_savings = htmlspecialchars($member_infor['proposed_monthly_savings']);
+
+        $payslipLinks = '';
+        for ($k = 1; $k <= 3; $k++) {
+            $time = strtotime("first day of -$k month");
+            if (date('Y', $time) == date('Y')) {
+                $payslipLinks .= " <a class='ml-2' href='slip.php?legacy=" . urlencode($member_infor['sp_no']) . "&s=" . date('n', $time) . "'>" . date('F', $time) . "</a>";
+            }
+        }
         
       
         // Output the professional header and layout
@@ -1747,10 +1893,7 @@ public function getWithdrawal_details($withrawals_id) {
                           <input type='text' name='approved_amount' > 
                          <hr>
                       
-                        <p><strong><a href='slip.php?legacy=".$member_infor['sp_no']."&s=".$m1."'>Download Applicant $month_name1 Payslip</a> &nbsp;
-                        <a href='slip.php?legacy=".$member_infor['sp_no']."&s=".$m2."'>Download Applicant $month_name2 Payslip</a> &nbsp; 
-                        <a href='slip.php?legacy=".$member_infor['sp_no']."&s=".$m3."'>Download Applicant $month_name3 Payslip</a>
-                        </strong> </p>
+                        <p><strong>Payslips:</strong> $payslipLinks</p>
                         
                           <div class='form-section'>
                            
@@ -1848,15 +1991,42 @@ public function getComp_Withdrawal_details($withrawals_id,$sp_no) {
        $sp_no = htmlspecialchars($member_infor['sp_no']);
        $employee_id = htmlspecialchars($member_infor['employee_id']);
         $member_id = htmlspecialchars($member_infor['member_id']);
-        $applicantName = htmlspecialchars($member_infor['fname'] . ' ' . $loanDetails['lname']);
+        $applicantName = htmlspecialchars($member_infor['fname'] . ' ' . $member_infor['lname']);
         $staffNo = htmlspecialchars($member_infor['sp_no']);
         $department = htmlspecialchars($member_infor['dept']);
         $gsmNo = htmlspecialchars($member_infor['phone_no']);
-        $bank = htmlspecialchars($member_infor['bank']);
-        $acctNo = htmlspecialchars($member_infor['acct_no']);
+        $bank = htmlspecialchars(isset($member_infor['bank']) ? (string) $member_infor['bank'] : '');
+        $acctNo = htmlspecialchars(isset($member_infor['acct_no']) ? (string) $member_infor['acct_no'] : '');
         $address = htmlspecialchars($member_infor['permanent_address']);
         $appointmentType = htmlspecialchars($member_infor['nature_of_appo']);
         $proposed_monthly_savings = htmlspecialchars($member_infor['proposed_monthly_savings']);
+
+        // What the member owes or guarantees (LoanControls::leavingObligations), and whether they asked to pay it from savings
+        require_once('LoanControls.php');
+        $ob = LoanControls::leavingObligations($member_infor['member_id'], $member_infor['employee_id'], (float) $this->getCurrentSavingsAmount($member_infor['sp_no']));
+        $req = $con->prepare("SELECT settle_from_savings FROM fudscoops_complete_withrawal WHERE comp_withdrwal_id = :id");
+        $req->execute([':id' => $withrawals_id]);
+        $settleChoice = (int) $req->fetchColumn();
+        $obligationsHtml = '';
+        $payslipLinks = '';
+        for ($k = 1; $k <= 3; $k++) {
+            $time = strtotime("first day of -$k month");
+            if (date('Y', $time) == date('Y')) {
+                $payslipLinks .= " <a class='ml-2' href='slip.php?legacy=" . urlencode($member_infor['sp_no']) . "&s=" . date('n', $time) . "'>" . date('F', $time) . "</a>";
+            }
+        }
+        foreach ($ob['blockers'] as $b) {
+            $obligationsHtml .= "<div class='alert alert-danger py-2 mb-2'>" . htmlspecialchars($b) . "</div>";
+        }
+        if ($ob['owed']) {
+            $obligationsHtml .= "<p class='mb-1'><strong>Owed by the member:</strong></p><ul>";
+            foreach ($ob['owed'] as $o) {
+                $obligationsHtml .= "<li>" . htmlspecialchars($o['label']) . ": &#8358; " . number_format($o['balance'], 2) . "</li>";
+            }
+            $obligationsHtml .= "</ul><p><strong>" . ($settleChoice ? "The member chose to pay this from savings. It is recorded when the Chairman approves; pay out &#8358; " . number_format($ob['payout'], 2) . " (everything left; savings go to zero)." : "The member did not choose to pay this from savings; the Chairman cannot approve until it is repaid.") . "</strong></p>";
+        } elseif (!$ob['blockers']) {
+            $obligationsHtml .= "<p class='text-success'><strong>The member owes no loan or commodity and is not guaranteeing an open loan. Pay out &#8358; " . number_format($ob['payout'], 2) . " (all their savings).</strong></p>";
+        }
         
       
         // Output the professional header and layout
@@ -1898,16 +2068,14 @@ public function getComp_Withdrawal_details($withrawals_id,$sp_no) {
                         <hr>
                         
                          <p><strong>Cummulative Saving Amount:</strong> &#8358; $currentsavings</p>
+                         $obligationsHtml
                          
                            <form class='com-withdrawal-decision-form'>
                          <label><strong>Approved Amount</strong></label> 
                           <input type='text' name='approved_amount' > 
                          <hr>
                       
-                        <p><strong><a href='slip.php?legacy=".$member_infor['sp_no']."&s=".$m1."'>Download Applicant $month_name1 Payslip</a> &nbsp;
-                        <a href='slip.php?legacy=".$member_infor['sp_no']."&s=".$m2."'>Download Applicant $month_name2 Payslip</a> &nbsp; 
-                        <a href='slip.php?legacy=".$member_infor['sp_no']."&s=".$m3."'>Download Applicant $month_name3 Payslip</a>
-                        </strong> </p>
+                        <p><strong>Payslips:</strong> $payslipLinks</p>
                         
                           <div class='form-section'>
                            

@@ -180,7 +180,7 @@ $(document).ready(function() {
     // ======================
     function loadItemTypes() {
         $.ajax({
-            url: "../../ajax/commodity_ajax.php",
+            url: "../ajax/commodity_ajax.php",
             method: "POST",
             data: { "action": "get_types" },
             dataType: "json",
@@ -249,7 +249,7 @@ $(document).ready(function() {
         spinner.removeClass("d-none");
 
         $.ajax({
-            url: "../../ajax/commodity_ajax.php",
+            url: "../ajax/commodity_ajax.php",
             method: "POST",
             data: formData,
             dataType: "json",
@@ -306,7 +306,7 @@ $(document).on("submit", "#add-quantity-form", function(e) {
     spinner.removeClass("d-none");
 
     $.ajax({
-        url: "../../ajax/commodity_ajax.php",
+        url: "../ajax/commodity_ajax.php",
         method: "POST",
         data: formData,
         dataType: "json",

@@ -57,7 +57,7 @@
                     <div class="input-group fud-amount">
                       <div class="input-group-prepend"><span class="input-group-text">₦</span></div>
                       <input type="number" class="form-control" id="savings_amount" name="savings_amount" required
-                             min="<?php echo (int) $minMonthlySavings; ?>" step="1" placeholder="<?php echo (int) $minMonthlySavings; ?> or more">
+                             min="<?php echo (float) $minMonthlySavings; ?>" step="0.01" placeholder="<?php echo number_format($minMonthlySavings, 2, ".", ""); ?> or more">
                     </div>
                     <small class="d-block mt-2 text-muted" id="changeNote">At least ₦<?php echo number_format($minMonthlySavings); ?>.</small>
 

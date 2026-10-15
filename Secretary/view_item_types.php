@@ -115,7 +115,7 @@ $(document).ready(function() {
         var type_id = $(this).data("id");
 
         $.ajax({
-            url: "../../ajax/commodity_ajax.php",
+            url: "../ajax/commodity_ajax.php",
             method: "POST",
             data: {"action":"get_item_type", "type_id": type_id},
             dataType: "json",
@@ -150,7 +150,7 @@ $(document).ready(function() {
         spinner.removeClass("d-none");
 
         $.ajax({
-            url: "../../ajax/commodity_ajax.php",
+            url: "../ajax/commodity_ajax.php",
             method: "POST",
             data: formData + "&action=update_item_type",
             dataType: "json",

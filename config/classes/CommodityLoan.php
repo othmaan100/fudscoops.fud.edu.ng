@@ -76,6 +76,158 @@ class CommodityLoan
 
     // ---------------------------------------------------------------- supply and request
 
+    // ---------------------------------------------------------------- supplies (Secretary/add_commodity_name.php)
+
+    // All supplies, newest first, with item and request counts and a status: open, upcoming or closed
+    public static function supplies()
+    {
+        // Status from the database clock, the same one openSupply() and the member's page use
+        $rows = self::con()->query("SELECT s.*,
+                                           CASE WHEN s.opening_date > NOW() THEN 'upcoming' WHEN s.closing_date >= NOW() THEN 'open' ELSE 'closed' END AS state,
+                                           (SELECT COUNT(*) FROM fudscoops_commodity_supply_items i WHERE i.commodity_supply_id = s.commodity_name_id) AS items,
+                                           (SELECT COUNT(*) FROM fudscoops_commodity_loan_applications a WHERE a.commodity_supply_id = s.commodity_name_id) AS requests
+                                    FROM fudscoops_commodity_supply s WHERE COALESCE(s.is_deleated, 0) = 0
+                                    ORDER BY s.opening_date DESC, s.commodity_name_id DESC")->fetchAll(PDO::FETCH_ASSOC);
+        return $rows;
+    }
+
+    // Creates ($id = 0) or changes a supply. $opens/$closes: 'YYYY-MM-DDTHH:MM' (datetime-local) or 'YYYY-MM-DD'.
+    // Returns ['ok' => true, 'id' => …] or ['ok' => false, 'message' => …]
+    public static function saveSupply($id, $name, $opens, $closes)
+    {
+        $con = self::con();
+        $name = strtoupper(trim(preg_replace('/\s+/', ' ', strip_tags((string) $name))));
+        $toTime = function ($v, $endOfDay) {
+            $v = str_replace('T', ' ', trim((string) $v));
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) {
+                $v .= $endOfDay ? ' 23:59:59' : ' 00:00:00';
+            } elseif (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/', $v)) {
+                $v .= $endOfDay ? ':59' : ':00';
+            }
+            $d = DateTime::createFromFormat('Y-m-d H:i:s', $v);
+            return $d && $d->format('Y-m-d H:i:s') === $v ? $v : null;
+        };
+        $open = $toTime($opens, false);
+        $close = $toTime($closes, true);
+        if ($id == 0 && $name === '') {
+            return ['ok' => false, 'message' => 'Enter a name for the supply, e.g. NOVEMBER 2026 SUPPLY.'];
+        }
+        if (!$open || !$close) {
+            return ['ok' => false, 'message' => 'Enter the opening and closing date and time.'];
+        }
+        if ($close <= $open) {
+            return ['ok' => false, 'message' => 'The closing time must be after the opening time.'];
+        }
+        if ($close <= $con->query("SELECT NOW()")->fetchColumn()) {
+            return ['ok' => false, 'message' => 'The closing time has already passed.'];
+        }
+        if ($id == 0) {
+            $stmt = $con->prepare("SELECT COUNT(*) FROM fudscoops_commodity_supply WHERE commodity_name = :n AND COALESCE(is_deleated, 0) = 0");
+            $stmt->execute([':n' => $name]);
+            if ($stmt->fetchColumn() > 0) {
+                return ['ok' => false, 'message' => 'A supply called ' . $name . ' already exists.'];
+            }
+        }
+        // Members see one supply at a time, so periods may not overlap
+        $stmt = $con->prepare("SELECT commodity_name, opening_date, closing_date FROM fudscoops_commodity_supply
+                               WHERE commodity_name_id <> :id AND COALESCE(is_deleated, 0) = 0 AND opening_date < :close AND closing_date > :open LIMIT 1");
+        $stmt->execute([':id' => (int) $id, ':open' => $open, ':close' => $close]);
+        if ($clash = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            return ['ok' => false, 'message' => 'This period overlaps ' . $clash['commodity_name'] . ' ('
+                  . date('d M Y H:i', strtotime($clash['opening_date'])) . ' – ' . date('d M Y H:i', strtotime($clash['closing_date']))
+                  . '). Members can only see one supply at a time; choose other dates or change that supply first.'];
+        }
+        if ($id == 0) {
+            $con->prepare("INSERT INTO fudscoops_commodity_supply (commodity_name, opening_date, closing_date) VALUES (:n, :o, :c)")
+                ->execute([':n' => $name, ':o' => $open, ':c' => $close]);
+            return ['ok' => true, 'id' => (int) $con->lastInsertId()];
+        }
+        $stmt = $con->prepare("UPDATE fudscoops_commodity_supply SET opening_date = :o, closing_date = :c WHERE commodity_name_id = :id");
+        $stmt->execute([':o' => $open, ':c' => $close, ':id' => (int) $id]);
+        return ['ok' => true, 'id' => (int) $id];
+    }
+
+    // One supply (with status), or null
+    public static function supply($supplyId)
+    {
+        foreach (self::supplies() as $s) {
+            if ((int) $s['commodity_name_id'] === (int) $supplyId) {
+                return $s;
+            }
+        }
+        return null;
+    }
+
+    // Items already in a supply: allocated, requested (reserved by members' requests) and left
+    public static function supplyItemsList($supplyId)
+    {
+        $stmt = self::con()->prepare("SELECT si.commodity_supply_item_id, si.item_id, si.unit_price, si.allocated_quantity, si.remaining_quantity,
+                                             ci.commodity_item, ci.commodity_description,
+                                             (SELECT COUNT(DISTINCT li.application_id) FROM fudscoops_commodity_loan_application_items li
+                                               WHERE li.commodity_supply_item_id = si.commodity_supply_item_id) AS request_count
+                                      FROM fudscoops_commodity_supply_items si
+                                      LEFT JOIN " . self::ITEMS . " ci ON ci.commodity_item_id = si.item_id
+                                      WHERE si.commodity_supply_id = :s ORDER BY ci.commodity_item, si.commodity_supply_item_id");
+        $stmt->execute([':s' => (int) $supplyId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$r) {
+            $r['requested'] = max(0, (float) $r['allocated_quantity'] - (float) $r['remaining_quantity']);
+        }
+        return $rows;
+    }
+
+    // Changes an item's price and total quantity in a supply. The quantity cannot go below what members have
+    // already requested; what is left moves by the same amount. Returns 1 or a message.
+    public static function updateSupplyItem($rowId, $price, $allocated)
+    {
+        $con = self::con();
+        $stmt = $con->prepare("SELECT allocated_quantity, remaining_quantity FROM fudscoops_commodity_supply_items WHERE commodity_supply_item_id = :id");
+        $stmt->execute([':id' => (int) $rowId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return 'Item not found. Reload the page.';
+        }
+        $price = round((float) preg_replace('/[^0-9.]/', '', (string) $price), 2);
+        $allocated = trim((string) $allocated);
+        if ($price <= 0) {
+            return 'Enter a unit price above 0.';
+        }
+        if (!ctype_digit($allocated) || (int) $allocated < 1) {
+            return 'Enter a whole quantity of at least 1.';
+        }
+        $requested = (float) $row['allocated_quantity'] - (float) $row['remaining_quantity'];
+        if ((int) $allocated < $requested) {
+            return 'Members have already requested ' . (int) $requested . '; the quantity cannot be less than that.';
+        }
+        $con->prepare("UPDATE fudscoops_commodity_supply_items SET unit_price = :p, allocated_quantity = :a, remaining_quantity = :r
+                       WHERE commodity_supply_item_id = :id")
+            ->execute([':p' => $price, ':a' => (int) $allocated, ':r' => (int) $allocated - $requested, ':id' => (int) $rowId]);
+        return 1;
+    }
+
+    // Removes an item from a supply, only if no member has requested it. Returns 1 or a message.
+    public static function removeSupplyItem($rowId)
+    {
+        $con = self::con();
+        $stmt = $con->prepare("SELECT COUNT(*) FROM fudscoops_commodity_loan_application_items WHERE commodity_supply_item_id = :id");
+        $stmt->execute([':id' => (int) $rowId]);
+        if ($stmt->fetchColumn() > 0) {
+            return 'Members have requested this item, so it cannot be removed. Reduce its quantity instead.';
+        }
+        $stmt = $con->prepare("DELETE FROM fudscoops_commodity_supply_items WHERE commodity_supply_item_id = :id");
+        $stmt->execute([':id' => (int) $rowId]);
+        return $stmt->rowCount() ? 1 : 'Item not found. Reload the page.';
+    }
+
+    // Stops new requests now (requests already made carry on through the Treasurer and Chairman)
+    public static function closeSupplyNow($id)
+    {
+        $stmt = self::con()->prepare("UPDATE fudscoops_commodity_supply SET closing_date = NOW() - INTERVAL 1 SECOND
+                                      WHERE commodity_name_id = :id AND closing_date > NOW() AND opening_date <= NOW()");
+        $stmt->execute([':id' => (int) $id]);
+        return $stmt->rowCount() > 0;
+    }
+
     // The supply open for requests now (latest closing date first), or null
     public static function openSupply()
     {
@@ -462,6 +614,25 @@ class CommodityLoan
                        ON DUPLICATE KEY UPDATE amount_paid = VALUES(amount_paid), recorded_by = VALUES(recorded_by), recorded_at = NOW()")
             ->execute([':id' => $appId, ':m' => $app['member_id'], ':month' => $month, ':a' => $amount, ':by' => $by]);
         if ($others + $amount >= $app['payable'] - 0.005) {
+            $con->prepare("UPDATE fudscoops_commodity_loan_applications SET status = 'repaid', repaid_date = CURDATE(), updated_at = NOW()
+                           WHERE application_id = :id")->execute([':id' => $appId]);
+        }
+        return 1;
+    }
+
+    // Adds a payment to the current month's deduction (settling from savings when a member leaves)
+    public static function creditRequest($appId, $amount, $by)
+    {
+        $app = self::application($appId);
+        if (!$app || !in_array($app['status'], ['supplied', 'completed'], true)) {
+            return 'The commodity request is no longer being repaid.';
+        }
+        $con = self::con();
+        $con->prepare("INSERT INTO fudscoops_commodity_repayments (application_id, member_id, repayment_month, amount_paid, recorded_by)
+                       VALUES (:id, :m, :month, :a, :by)
+                       ON DUPLICATE KEY UPDATE amount_paid = amount_paid + VALUES(amount_paid), recorded_by = VALUES(recorded_by), recorded_at = NOW()")
+            ->execute([':id' => $appId, ':m' => $app['member_id'], ':month' => date('Y-m-01'), ':a' => round($amount, 2), ':by' => $by]);
+        if ($app['repaid'] + $amount >= $app['payable'] - 0.005) {
             $con->prepare("UPDATE fudscoops_commodity_loan_applications SET status = 'repaid', repaid_date = CURDATE(), updated_at = NOW()
                            WHERE application_id = :id")->execute([':id' => $appId]);
         }

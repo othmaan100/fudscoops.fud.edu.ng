@@ -113,7 +113,7 @@ class MemberG2{
         $stmt->bindValue(':amount', (string) $amount, PDO::PARAM_STR);
         $stmt->bindValue(':bank_id', (int) $bank_id, PDO::PARAM_INT);
         $stmt->bindValue(':tellerno', (int) $tellerno, PDO::PARAM_INT);
-        $stmt->bindValue(':amount_paid', $amount, PDO::PARAM_INT);
+        $stmt->bindValue(':amount_paid', $amount, PDO::PARAM_STR);
         $stmt->bindParam(':words', $words, PDO::PARAM_STR);
         return $stmt->execute() ? 1 : 'Could not save the share purchase. Contact system admin.';
     }
@@ -209,6 +209,10 @@ class MemberG2{
         $stm_withdrawals->execute();
         $result_withdrawals = $stm_withdrawals->fetch(PDO::FETCH_ASSOC);
         $total_withdrawals = $result_withdrawals['total_withdrawals'] ?? 0;
+        // Approved complete withdrawals (paid out, plus loans and commodity settled from savings)
+        $stm_complete = $con->prepare("SELECT (SELECT COALESCE(SUM(c.approved_amount + CASE WHEN c.settled_at IS NOT NULL THEN c.amount_owed ELSE 0 END), 0) FROM fudscoops_complete_withrawal c JOIN fudscoops_member cm ON cm.employee_id = c.employee_id WHERE cm.member_id = :member_id AND c.chairman_approval = 1 AND COALESCE(c.complete_withrawal_is_deleted, 0) = 0)");
+        $stm_complete->execute([':member_id' => $member_id]);
+        $total_withdrawals += (float) $stm_complete->fetchColumn();
         
         // Calculate the difference
         $difference = $total_savings - $total_withdrawals;
@@ -585,7 +589,7 @@ class MemberG2{
                 $q = "UPDATE fudscoops_share_unit SET price=:price WHERE share=:share";
                 $stm = $con->prepare($q);
                 $stm->bindParam(':share',$share,PDO::PARAM_STR);
-                $stm->bindParam(':price',$price,PDO::PARAM_INT);
+                $stm->bindParam(':price', $price, PDO::PARAM_STR);
                  if ($stm->execute()) {
                     return 'Share Unit Updated Successfully!'; // Update successful
                  } else {
@@ -597,7 +601,7 @@ class MemberG2{
 
                 $stm = $con->prepare($q);
                 $stm->bindParam(':share',$share,PDO::PARAM_STR);
-                $stm->bindParam(':price',$price,PDO::PARAM_INT);
+                $stm->bindParam(':price', $price, PDO::PARAM_STR);
                  if ($stm->execute()) {
                     return 'Share Unit Created Successfully!'; // Insert successful
                  } else {
@@ -3394,42 +3398,13 @@ class MemberG2{
     return $r_v;
 }
 
+    // Secretary/password.php: same rules as User::resetPassword (members and applicants only).
+    // Returns 1 reset, -1 not found or error, -2 officer account.
     public function resetPasswordByUsername($username)
-{
-    $db  = new DB();
-    $con = $db->getConnection();
-
-    try {
-        // Step 1: Check if username exists
-        $sql = "SELECT username FROM user WHERE username = :username LIMIT 1";
-        $stmt = $con->prepare($sql);
-        $stmt->bindParam(':username', $username, PDO::PARAM_STR);
-        $stmt->execute();
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$row) {
-            return -1; // Username not found
-        }
-
-        // Step 2: Generate MD5 hash of username
-        $newPassword = md5($username);
-
-        // Step 3: Update password
-        $updateSql = "UPDATE user SET password = :newpassword WHERE username = :username";
-        $updateStmt = $con->prepare($updateSql);
-        $updateStmt->bindParam(':newpassword', $newPassword, PDO::PARAM_STR);
-        $updateStmt->bindParam(':username', $username, PDO::PARAM_STR);
-
-        if ($updateStmt->execute() && $updateStmt->rowCount() > 0) {
-            return 1; // Success
-        } else {
-            return -1; // Update failed
-        }
-
-    } catch (Exception $e) {
-        return -1; // Error occurred
+    {
+        $result = (new User())->resetPassword($username);
+        return $result === 1 ? 1 : ($result === -2 ? -2 : -1);
     }
-}
 
 
 
@@ -3498,9 +3473,10 @@ class MemberG2{
         $con = (new DB())->getConnection();
         $stmt = $con->prepare("SELECT
                 (SELECT COALESCE(SUM(savings_amount), 0) FROM fudscoops_savings WHERE member_idmember = :m1)
-              - (SELECT COALESCE(SUM(approved_withrawal_amount), 0) FROM fudscoops_withrawals WHERE member_id = :m2 AND chairman_approval = 1)");
-        $stmt->execute([':m1' => $memberId, ':m2' => $memberId]);
-        return (int) $stmt->fetchColumn();
+              - (SELECT COALESCE(SUM(approved_withrawal_amount), 0) FROM fudscoops_withrawals WHERE member_id = :m2 AND chairman_approval = 1)
+              - (SELECT COALESCE(SUM(c.approved_amount + CASE WHEN c.settled_at IS NOT NULL THEN c.amount_owed ELSE 0 END), 0) FROM fudscoops_complete_withrawal c JOIN fudscoops_member cm ON cm.employee_id = c.employee_id WHERE cm.member_id = :m3 AND c.chairman_approval = 1 AND COALESCE(c.complete_withrawal_is_deleted, 0) = 0)");
+        $stmt->execute([':m1' => $memberId, ':m2' => $memberId, ':m3' => $memberId]);
+        return (float) $stmt->fetchColumn();
     }
 
     private static function minBalanceAfterTransfer()

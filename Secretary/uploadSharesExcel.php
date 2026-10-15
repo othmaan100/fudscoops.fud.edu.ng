@@ -78,7 +78,7 @@ if (isset($_FILES['uploadFile'])) {
                                 // Member already has share entries (fudscoops_shares is a ledger): the file gives the
                                 // member's total holding, so add an approved 'adjustment' entry for the difference
                                 $current = MemberG2::getShareHolding($memberId);
-                                $difference = (int) $amountPaid - $current;
+                                $difference = round((float) $amountPaid - $current, 2);
                                 $stmt = true;
                                 if ($difference != 0) {
                                     $differenceWord = $user->numberToWords(abs($difference));
@@ -116,8 +116,8 @@ if (isset($_FILES['uploadFile'])) {
                                             :sec_endo_date, :chai_appro_date, :update_at)";
                                 $stm = $con->prepare($query);
                                 $stm->bindParam(':member_id', $memberId, PDO::PARAM_INT);
-                                $stm->bindParam(':unit_price', $amountPaid, PDO::PARAM_INT);
-                                $stm->bindParam(':amount_paid', $amountPaid, PDO::PARAM_INT);
+                                $stm->bindParam(':unit_price', $amountPaid, PDO::PARAM_STR);
+                                $stm->bindParam(':amount_paid', $amountPaid, PDO::PARAM_STR);
                                 $stm->bindParam(':amount_word', $amountWord, PDO::PARAM_STR);
                                 $stm->bindParam(':date', $date, PDO::PARAM_STR);
                                 $stm->bindParam(':share_status', $shares_status, PDO::PARAM_INT);

@@ -121,8 +121,8 @@
                       <label for="approvedAmount">Approved monthly savings (minimum ₦<?php echo number_format($minMonthlySavings); ?>)</label>
                       <div class="input-group">
                         <div class="input-group-prepend"><span class="input-group-text">₦</span></div>
-                        <input type="number" id="approvedAmount" class="form-control" min="<?php echo $minMonthlySavings; ?>" step="1"
-                               value="<?php echo (int) $applicant['proposed_monthly_savings'] > 0 ? (int) $applicant['proposed_monthly_savings'] : ''; ?>">
+                        <input type="number" id="approvedAmount" class="form-control" min="<?php echo $minMonthlySavings; ?>" step="0.01"
+                               value="<?php echo (float) $applicant['proposed_monthly_savings'] > 0 ? (float) $applicant['proposed_monthly_savings'] : ''; ?>">
                       </div>
                     </div>
                     <button type="button" id="approveApplicant" class="btn btn-success"

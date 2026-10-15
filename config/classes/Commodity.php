@@ -1320,34 +1320,6 @@ public static function processDisbursement($application_id, $disbursed_quantitie
     }
     
     
-    public function commoditySchedule($start,$stop,$batch,$commodity_name_id,$level,$for)
-    {
-
-        $db = new DB();
-        $con = $db->getConnection();
-        $start = date('Y-m-d', strtotime($start));
-        $stop = date('Y-m-d', strtotime($stop));
-        
-       
-            $query = "INSERT INTO fudscoops_commodity_schedule (start_date,stop_date,commodity_name_id,batch,schedule_level,schedule_for)
-                 VALUES(:start,:stop,:comm_name,:batch,:level,:for)";
-            $stm2 = $con->prepare($query);
-            $stm2->bindParam(":start", $start, PDO::PARAM_STR);
-            $stm2->bindParam(":stop", $stop, PDO::PARAM_STR);
-            $stm2->bindParam(":comm_name", $session, PDO::PARAM_INT);
-            $stm2->bindParam(":batch", $type, PDO::PARAM_INT);
-            $stm2->bindParam(":level", $level, PDO::PARAM_STR);
-            $stm2->bindParam(":for", $for, PDO::PARAM_STR);
-            $stm2->execute();
-            $count = $stm2->rowCount();
-            if ($count>0) {
-                return 1;
-            }else {
-                return -1;
-            }                            
-    }
-
-    
     public function getItem($item_id) {
         $query = "SELECT i.*, t.type_name 
                  FROM CommodityItems i
@@ -1990,36 +1962,83 @@ public static function getCommoditySupplyItems($commodity_supply_id) {
      * Create a new commodity batch 
      */
       
+// Adds items to a commodity supply (Secretary/addCommodityItems.php). $items: JSON [{itemId, unitPrice, quantity}].
+// An item already in the supply gets the extra quantity (and the new price) instead of a second line, so members
+// see each item once. Everything is saved or nothing is.
 function saveCommoditySupplyItems($commodity_name_id, $items) {
-    $items = json_decode($items);
-    $commodity_name_id = $commodity_name_id; // Assuming batch_id is passed in the request
+    $con = (new DB())->getConnection();
+    $con->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $items = json_decode((string) $items, true);
+    $fail = function ($message) { return ['success' => false, 'status' => 'error', 'message' => $message]; };
 
-    foreach ($items as $item) {
-        // remaining_quantity starts at the full allocation (it was left at 0, so members could not request the items)
-        $stmt = $this->conn->prepare("INSERT INTO fudscoops_commodity_supply_items (commodity_supply_id, item_id, unit_price, allocated_quantity, remaining_quantity)
-                               VALUES (?, ?, ?, ?, ?)");
-        $stmt->execute([
-            $commodity_name_id,
-            $item->itemId,
-            $item->unitPrice,
-            $item->quantity,
-            $item->quantity
-        ]);
+    $stmt = $con->prepare("SELECT commodity_name FROM fudscoops_commodity_supply WHERE commodity_name_id = :id AND COALESCE(is_deleated, 0) = 0");
+    $stmt->execute([':id' => (int) $commodity_name_id]);
+    if (!$stmt->fetchColumn()) {
+        return $fail('This commodity supply was not found. Open the items page from Commodity Supplies.');
+    }
+    if (!is_array($items) || !$items) {
+        return $fail('Add at least one item before saving.');
     }
 
-     return [
-        'success' => true,
-        'status' => 'success',
-        "message" => "Items saved successfully",
-        "commodity_supply_id" => $commodity_name_id,
-        "items" => $items
-    ];
+    // Combine repeated items in the list and check each line
+    $lines = [];
+    $itemCheck = $con->prepare("SELECT commodity_item FROM fudscoops_commodity_Items WHERE commodity_item_id = :id");
+    foreach ($items as $item) {
+        $itemId = isset($item['itemId']) ? (int) $item['itemId'] : 0;
+        $qty = isset($item['quantity']) ? (float) $item['quantity'] : 0;
+        $price = isset($item['unitPrice']) ? round((float) $item['unitPrice'], 2) : 0;
+        $itemCheck->execute([':id' => $itemId]);
+        $name = $itemCheck->fetchColumn();
+        if (!$name) {
+            return $fail('One of the items no longer exists. Reload the page and try again.');
+        }
+        if ($qty <= 0 || floor($qty) != $qty) {
+            return $fail('Enter a whole quantity above 0 for ' . $name . '.');
+        }
+        if ($price <= 0) {
+            return $fail($name . ' has no unit price. Set its price on View Items first.');
+        }
+        if (isset($lines[$itemId])) {
+            $lines[$itemId]['qty'] += $qty;
+            $lines[$itemId]['price'] = $price;
+        } else {
+            $lines[$itemId] = ['qty' => $qty, 'price' => $price, 'name' => $name];
+        }
+    }
+
+    try {
+        $con->beginTransaction();
+        $existing = $con->prepare("SELECT commodity_supply_item_id FROM fudscoops_commodity_supply_items
+                                   WHERE commodity_supply_id = :s AND item_id = :i ORDER BY commodity_supply_item_id LIMIT 1 FOR UPDATE");
+        $add = $con->prepare("UPDATE fudscoops_commodity_supply_items
+                              SET allocated_quantity = allocated_quantity + :q, remaining_quantity = remaining_quantity + :q2, unit_price = :p
+                              WHERE commodity_supply_item_id = :id");
+        $insert = $con->prepare("INSERT INTO fudscoops_commodity_supply_items (commodity_supply_id, item_id, unit_price, allocated_quantity, remaining_quantity)
+                                 VALUES (:s, :i, :p, :q, :q2)"); // remaining starts at the full allocation
+        $added = $topped = 0;
+        foreach ($lines as $itemId => $line) {
+            $existing->execute([':s' => (int) $commodity_name_id, ':i' => $itemId]);
+            if ($rowId = $existing->fetchColumn()) {
+                $add->execute([':q' => $line['qty'], ':q2' => $line['qty'], ':p' => $line['price'], ':id' => $rowId]);
+                $topped++;
+            } else {
+                $insert->execute([':s' => (int) $commodity_name_id, ':i' => $itemId, ':p' => $line['price'], ':q' => $line['qty'], ':q2' => $line['qty']]);
+                $added++;
+            }
+        }
+        $con->commit();
+    } catch (Exception $e) {
+        if ($con->inTransaction()) {
+            $con->rollBack();
+        }
+        error_log('Save commodity supply items: ' . $e->getMessage());
+        return $fail('The items could not be saved. Please try again.');
+    }
+
+    $message = $added . ' item(s) added' . ($topped ? ', ' . $topped . ' already in the supply had their quantity increased' : '') . '.';
+    return ['success' => true, 'status' => 'success', 'message' => $message, 'commodity_supply_id' => (int) $commodity_name_id];
 }
 
-    
-     
-    // ==================== BATCH METHODS ====================
-    
     public function createBatch($batch_name, $description, $opening_date, $closing_date, $max_members, $max_loan_amount, $created_by) {
         try {
             // Validate dates

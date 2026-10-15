@@ -14,8 +14,10 @@
     // Loan and share eligibility rules (see MemberG3::loanEligibilityError and MemberG2 share ledger)
     $rules = [
         'loan_interest_rate'               => ['Loan interest (flat %)', 'Added once to the approved amount when the Treasurer fixes a new loan (e.g. 10% of ₦100,000 = ₦10,000). Loans already fixed keep their rate.', 10, 'decimal'],
+        'withdrawal_min_balance'           => ['Minimum savings balance after a withdrawal (₦)', 'Savings withdrawals must leave at least this amount in the member savings. A complete withdrawal (member leaving) pays out everything left.', 3000, 'decimal'],
+        'soft_loan_open'                   => ['Soft loans open (1 = open, 0 = closed)', 'While closed, members cannot apply for a Soft Loan. Closed from 14 October 2026.', 0, 'int'],
         'commodity_max_tenor'              => ['Commodity repayment period (most months)', 'Members choose 1 to this many months when requesting commodity; the loan interest rate above is added to commodity too.', 6, 'int'],
-        'loan_max_savings_multiple'        => ['Loan limit (times savings balance)', 'A member\'s open loans plus a new loan may not exceed this many times their savings balance. 0 = no limit.', 2, 'decimal'],
+        'loan_max_savings_multiple'        => ['Loan limit (times savings balance)', 'A member\'s open loans plus a new loan may not exceed this many times their savings balance. 0 = no limit.', 3, 'decimal'],
         'guarantor_max_open_loans'         => ['Loans one member may guarantee at a time', 'Open (pending or not fully repaid) loans. 0 = no limit.', 2, 'int'],
         'share_min_balance_after_transfer' => ['Minimum shares kept after a transfer (₦)', 'A member must keep at least this amount of shares after transferring shares to another member.', 20000, 'int'],
     ];
@@ -97,8 +99,8 @@
                         onsubmit="return confirm('Change the minimum monthly savings to ₦' + Number(this.min_monthly_savings.value).toLocaleString() + '?');">
                     <div class="input-group mr-2 mb-2">
                       <div class="input-group-prepend"><span class="input-group-text">₦</span></div>
-                      <input type="number" name="min_monthly_savings" class="form-control" min="1" step="1" required
-                             value="<?php echo (int) $minMonthlySavings; ?>">
+                      <input type="number" name="min_monthly_savings" class="form-control" min="1" step="0.01" required
+                             value="<?php echo (float) $minMonthlySavings; ?>">
                     </div>
                     <button type="submit" class="btn btn-primary mb-2">Save</button>
                   </form>

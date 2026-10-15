@@ -32,6 +32,25 @@ $openLoans = count(array_filter($loans, function ($l) { return $l['outstanding']
 $pending = $dashboard->memberPending($memberId);
 $requests = $dashboard->personalRequests($employeeid);
 $repaid = $dashboard->recentlyRepaid($memberId, $employeeid);
+require_once('../config/classes/LoanControls.php');
+$overdueLoans = LoanControls::overdueLoans($memberId);
+$overdueGuaranteed = LoanControls::overdueGuaranteed($employeeid);
+// Loans this member guarantees: active = accepted and not finished; waiting = not decided yet (same as R/guarantee.php)
+require_once('../config/classes/MemberG3.php');
+require_once('../config/classes/Settings.php');
+$guaranteeActive = $guaranteeWaiting = 0;
+foreach ((new MemberG3())->guaranteeRequests($employeeid) as $g) {
+    if (in_array($g['loan_status'], ['Disapprove', 'Repaid'], true)) {
+        continue;
+    }
+    if ((int) $g['guarantor_status'] === 1) {
+        $guaranteeActive++;
+    } elseif ((int) $g['guarantor_status'] === 0) {
+        $guaranteeWaiting++;
+    }
+}
+$guaranteeMax = (int) Settings::get('guarantor_max_open_loans', 2);
+$overpayments = LoanControls::overpayments(null, $memberId);
 $transferNotice = $member2->notifyMemberShareTransferApproval($memberId);
 $recentWithdrawals = $member1->getRecentMemberWithdrawals($memberId);
 $banks = (new DB())->getConnection()->query("SELECT id, name FROM banks")->fetchAll(PDO::FETCH_KEY_PAIR);
@@ -63,6 +82,28 @@ echo $view->subHeader('../');
       </div>
 
       <!-- Things that need the member's action -->
+      <?php foreach ($overdueLoans as $od) { ?>
+        <div class="fud-notice"><i class="mdi mdi-alert-circle"></i>
+          <span>Your <?php echo htmlspecialchars($od['loan_type_name']); ?> is overdue: deductions are ₦<?php echo number_format($od['arrears'], 2); ?> behind
+            (<?php echo count($od['missed']); ?> month(s) missed or short). Please contact the Treasurer.</span>
+          <a href="view_loan_approval.php">My loans</a></div>
+      <?php } ?>
+      <?php foreach ($overdueGuaranteed as $od) { ?>
+        <div class="fud-notice"><i class="mdi mdi-account-alert"></i>
+          <span>The <?php echo htmlspecialchars($od['loan_type_name']); ?> you guaranteed for <?php echo htmlspecialchars(trim($od['fname'] . ' ' . $od['lname'])); ?>
+            is overdue: ₦<?php echo number_format($od['arrears'], 2); ?> behind. As guarantor you may be held responsible.</span></div>
+      <?php } ?>
+      <?php foreach ($dashboard->recentWithdrawalRejections($memberId) as $rj) { ?>
+        <div class="fud-notice"><i class="mdi mdi-close-circle"></i>
+          <span>Your savings withdrawal request of ₦<?php echo number_format((float) $rj['proposed_withrawal_amount'], 2); ?> was rejected<?php echo $rj['treasurer_comment'] ? ': ' . htmlspecialchars($rj['treasurer_comment']) : '.'; ?></span>
+          <a href="savings/savings_withdrawal.php">Withdraw Savings</a></div>
+      <?php } ?>
+      <?php foreach ($overpayments as $op) { ?>
+        <div class="fud-notice info"><i class="mdi mdi-cash-refund"></i>
+          <span>Your <?php echo htmlspecialchars($op['loan_type_name']); ?> was overpaid by ₦<?php echo number_format($op['amount'], 2); ?>.
+            <?php echo $op['status'] === 'open' ? 'Tell the Treasurer what to do with it.' : 'Your choice is with the Treasurer.'; ?></span>
+          <a href="overpayment.php"><?php echo $op['status'] === 'open' ? 'Choose' : 'View'; ?></a></div>
+      <?php } ?>
       <?php if ($requests['guarantees'] > 0) { ?>
         <div class="fud-notice"><i class="mdi mdi-account-check"></i>
           <span><?php echo $requests['guarantees']; ?> member(s) asked you to guarantee a loan.</span>
@@ -91,12 +132,12 @@ echo $view->subHeader('../');
             <div class="fud-stat-value">₦<?php echo number_format($psavings); ?></div>
             <div class="fud-stat-sub">deducted from salary</div></div>
         </div>
-        <div class="fud-stat">
+        <a class="fud-stat fud-stat-link" href="savings/savings_history.php" title="Savings History">
           <div class="fud-stat-icon fud-green"><i class="mdi mdi-wallet"></i></div>
           <div><div class="fud-stat-label">Savings Balance</div>
             <div class="fud-stat-value">₦<?php echo number_format($currentsavings); ?></div>
             <div class="fud-stat-sub">after withdrawals</div></div>
-        </div>
+        </a>
         <div class="fud-stat">
           <div class="fud-stat-icon fud-purple"><i class="mdi mdi-chart-pie"></i></div>
           <div><div class="fud-stat-label">My Shares</div>
@@ -109,6 +150,18 @@ echo $view->subHeader('../');
             <div class="fud-stat-value">₦<?php echo number_format($loansOutstanding); ?></div>
             <div class="fud-stat-sub"><?php echo $openLoans; ?> loan(s) being repaid</div></div>
         </div>
+        <a class="fud-stat fud-stat-link" href="guarantee.php">
+          <div class="fud-stat-icon <?php echo $overdueGuaranteed ? 'fud-rose' : 'fud-blue'; ?>"><i class="mdi mdi-account-check"></i></div>
+          <div><div class="fud-stat-label">Loans I Guarantee</div>
+            <div class="fud-stat-value"><?php echo $guaranteeActive; ?> active</div>
+            <div class="fud-stat-sub"><?php
+              $bits = [];
+              if ($guaranteeWaiting) { $bits[] = $guaranteeWaiting . ' waiting for you'; }
+              if ($overdueGuaranteed) { $bits[] = count($overdueGuaranteed) . ' overdue'; }
+              if ($guaranteeMax > 0) { $bits[] = 'at most ' . $guaranteeMax . ' at a time'; }
+              echo implode(' · ', $bits);
+            ?></div></div>
+        </a>
         <div class="fud-stat">
           <div class="fud-stat-icon fud-teal"><i class="mdi mdi-bank-transfer-out"></i></div>
           <div><div class="fud-stat-label">Total Withdrawn</div>

@@ -29,7 +29,15 @@ require_once '../config/classes/MemberG3.php';
        $status = $db->getConnection()->prepare("SELECT loan_status FROM fudscoops_loan WHERE loan_id = :id");
        $status->execute([':id' => $loan_id]);
        $done = $status->fetchColumn() === 'Repaid';
-       echo json_encode(['status' => 'success', 'message' => $done ? 'Repayment recorded. The loan is now fully repaid.' : 'Repayment recorded successfully.']);
+       $message = $done ? 'Repayment recorded. The loan is now fully repaid.' : 'Repayment recorded successfully.';
+       // More than the loan owes: flagged for the member to choose what to do (LoanControls::syncOverpayment)
+       require_once '../config/classes/LoanControls.php';
+       foreach (LoanControls::overpayments(null, $member_id) as $op) {
+           if ((int) $op['loan_id'] === (int) $loan_id) {
+               $message .= ' The loan is OVERPAID by ₦' . number_format($op['amount'], 2) . '; the member has been asked what to do with it.';
+           }
+       }
+       echo json_encode(['status' => 'success', 'message' => $message]);
     } else {
         echo json_encode(['status' => 'error', 'message' => 'Failed to save repayment.']);
     }

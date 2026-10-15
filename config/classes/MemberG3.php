@@ -663,6 +663,19 @@ public function checkGuarantor($guarantor_id) {
             });
           </script>";
 }
+    // Why a loan was declined (Treasurer and Chairman must give a reason; the guarantor may)
+    private static function declineReasonHtml($loan)
+    {
+        $reason = '';
+        if ($loan['guarantor_status'] == -1) {
+            $reason = isset($loan['guarantor_comment']) ? $loan['guarantor_comment'] : '';
+        } elseif ($loan['loan_status'] === 'Disapprove') {
+            $reason = $loan['chairman_approval'] == -1 ? $loan['chairman_comment'] : $loan['treasurer_comment'];
+        }
+        $reason = trim((string) $reason);
+        return $reason === '' ? '' : '<br><small class="text-muted">Reason: ' . htmlspecialchars($reason) . '</small>';
+    }
+
     public function getMyloan($member_id) {
         $con = (new DB())->getConnection();
         $stmt = $con->prepare("
@@ -694,7 +707,7 @@ public function checkGuarantor($guarantor_id) {
                . "<td>" . (int) $loan['loan_tenor'] . " month(s)" . (!empty($loan['repayment_start']) ? "<br><small>from " . date('M Y', strtotime($loan['repayment_start'])) . "</small>" : '') . "</td>"
                . "<td>" . ($isDebt ? '₦' . number_format($loan['repaid'], 2) : '-') . "</td>"
                . "<td>" . ($isDebt ? '₦' . number_format(max(0, $total - $loan['repaid']), 2) : '-') . "</td>"
-               . "<td>" . htmlspecialchars(self::loanStageLabel($loan)) . "</td></tr>";
+               . "<td>" . htmlspecialchars(self::loanStageLabel($loan)) . self::declineReasonHtml($loan) . "</td></tr>";
         }
         echo "</tbody></table>";
     }
@@ -952,6 +965,11 @@ echo "<script>
         echo "<strong>Period:</strong> {$tenor} month(s) from " . $start->format('F Y') . " · <strong>Monthly:</strong> ₦" . number_format($monthly, 2) . "<br>";
         echo "<strong>Repaid:</strong> ₦" . number_format($loan['repaid'], 2) . " · <strong>Balance:</strong> ₦" . number_format($balance, 2)
            . " · <strong>Status:</strong> " . htmlspecialchars(self::loanStageLabel($loan)) . "</p>";
+        if ($balance > 0 && $loan['loan_status'] !== 'Repaid') {
+            // Early payoff: the full interest is still charged, so the member pays the whole balance
+            echo "<p class='text-muted small'>Early payoff: record the full balance of ₦" . number_format($balance, 2)
+               . " in the month the member pays. The full interest is charged; there is no rebate for paying early.</p>";
+        }
         echo "<table class='table table-striped table-bordered' style='width:100%'><thead style='background:#3b6fe8;color:#fff;'><tr>
                 <th>S/N</th><th>Month</th><th>Expected</th><th>Paid</th><th>Recorded</th><th>Record deduction</th></tr></thead><tbody>";
         $remaining = $total;
@@ -1001,14 +1019,15 @@ echo "<script>
     }
 
 
-    public function updateGuaranto($loan_id, $accept = true, $guarantorEmployeeId = null){
+    public function updateGuaranto($loan_id, $accept = true, $guarantorEmployeeId = null, $comment = ''){
         $con = (new DB())->getConnection();
         if ($guarantorEmployeeId === null) {
             $guarantorEmployeeId = (new User())->getEmployeeId(isset($_SESSION['username']) ? $_SESSION['username'] : '');
         }
-        $stmt = $con->prepare("UPDATE fudscoops_loan SET guarantor_status = :status, guarantor_approved_date = :date
+        $stmt = $con->prepare("UPDATE fudscoops_loan SET guarantor_status = :status, guarantor_approved_date = :date, guarantor_comment = :comment
                                WHERE loan_id = :loan_id AND guarantor_employee_id = :guarantor AND guarantor_status = 0");
-        $stmt->execute([':status' => $accept ? 1 : -1, ':date' => date('Y-m-d'), ':loan_id' => $loan_id, ':guarantor' => $guarantorEmployeeId]);
+        $stmt->execute([':status' => $accept ? 1 : -1, ':date' => date('Y-m-d'), ':comment' => $accept ? null : (trim((string) $comment) === '' ? null : trim((string) $comment)),
+                        ':loan_id' => $loan_id, ':guarantor' => $guarantorEmployeeId]);
         return $stmt->rowCount() > 0 ? 1 : 'This loan is not awaiting your decision as guarantor.';
 }
 
@@ -1020,126 +1039,259 @@ echo "<script>
         return $this->treasurerReview($loan_id, $member_id, $amount, $tenor, '', in_array($action, ['approve', 'approved', 'recommend'], true));
 }
 
-public function getUndertaking($loan_id) {
-    $db = new DB();
-    $con = $db->getConnection();
-    $user = new User();
-    
-    // Fetch loan details based on loan_id
-    $sql = "SELECT 
-                m.member_id, e.fname, e.lname, l.guarantor_employee_id,l.guarantor_status,
-                l.loan_id, l.loan_amount, l.loan_date, l.loan_status
-            FROM 
-                fudscoops_loan l
-            JOIN 
-                fudscoops_member m ON l.member_id = m.member_id
-            JOIN 
-                employee e ON e.employee_id = m.employee_id
-            WHERE 
-                l.loan_id = :loan_id";
-    
-    $stmt = $con->prepare($sql);
-    $stmt->bindParam(':loan_id', $loan_id, PDO::PARAM_INT);
-    $stmt->execute();
-    
-    $loanDetails = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    if ($loanDetails) {
-        $info = $user->getStaffInformationByEmployeeId($loanDetails['guarantor_employee_id']);
-        // Get today's date for the form
-            if(!is_null($loanDetails['guarantor_approved_date'])){
-                $date =$loanDetails['guarantor_approved_date'];
-            }else{
-              $date = date('Y-m-d');
-            }
-        
-        // Prepare staff information
-        $fullname = $info['fname'] . ' ' . $info['lname'] . ' ' . $info['oname'];
-        $applicantName = htmlspecialchars($loanDetails['fname'] . ' ' . $loanDetails['lname']);
-        $staffNo = htmlspecialchars($info['sp_no']);
-        $department = htmlspecialchars($info['dept']);
-        $gsmNo = htmlspecialchars($info['phone_no']);
-        $bank = htmlspecialchars($info['bank']);
-        $acctNo = htmlspecialchars($info['acct_no']);
-        $address = htmlspecialchars($info['permanent_address']);
-        $appointmentType = htmlspecialchars($info['nature_of_appo']);
-            // The guarantor decides once: accepted (1) or declined (-1)
-            if($loanDetails['guarantor_status']!=0){
-                $button="disabled";
-                $check="checked";
-            }else{
-                $button=" ";
-                $check=" ";
-            }
-        // Output the professional header and layout
-        echo "<html>
-                <head>
-                    <title>Guarantor Undertaking</title>
-                    <style>
-                        body { font-family: Arial, sans-serif; margin: 20px; }
-                        .container { max-width: 800px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
-                        h3 { text-align: center; color: #007bff; }
-                        .header { text-align: center; }
-                        .header img { width: 150px; }
-                        .staff-info { margin-top: 20px; }
-                        .staff-info p { margin: 5px 0; }
-                        .undertaking-text { font-size: 14px; line-height: 1.5; }
-                        .form-section { margin-top: 30px; }
-                    </style>
-                </head>
-                <body>
-                    
-                    <div class=''>
-                            <div class='header'>
-                                <img src='../images/logo.png' alt='logo'>
-                                  <h2>FUD STAFF COOPERATIVE PORTAL</h2>
-                                  <h3>Guarantor Undertaking Form</h3>
-                            </div>
-                        <hr>
-                        <div class='staff-info'>
-                            <h4><strong>Guarantor's Information:</strong></h4>
-                            <p><strong>Name:</strong> $fullname</p>
-                            <p><strong>Staff No:</strong> $staffNo</p>
-                            <p><strong>Department/Unit:</strong> $department</p>
-                            <p><strong>GSM No:</strong> $gsmNo</p>
-                            <p><strong>Bank:</strong> $bank</p>
-                            <p><strong>Acct. No:</strong> $acctNo</p>
-                            <p><strong>Permanent Home Address:</strong> $address</p>
-                            <p><strong>Type of Appointment:</strong> $appointmentType</p>
-                        </div>
-                        <hr>
-                        <p><strong>Loan Details:</strong></p>
-                        <p><strong>Applicant Name:</strong> " . htmlspecialchars($loanDetails['fname'] . ' ' . $loanDetails['lname']) . "</p>
-                        <p><strong>Loan Amount:</strong> " . htmlspecialchars($loanDetails['loan_amount']) . "</p>
-                        <p><strong>Loan Date:</strong> " . htmlspecialchars($loanDetails['loan_date']) . "</p>
-                        <p><strong>Loan Status:</strong> " . htmlspecialchars($loanDetails['loan_status']) . "</p>
-                        
-                        <div class='form-section'>
-                           <form class='undertaking-form'>
-                                <p class='undertaking-text'>
-                                    <strong>UNDERTAKING:</strong><br>
-                                    I, $fullname, hereby agree to serve as a guarantor to $applicantName and be held responsible in case of any default by the member.
-                                </p>
-                                <div>
-                                    <label>
-                                        <input type='checkbox' $check  name='undertaking_agreed' required> I agree to be the guarantor.
-                                        <input type='hidden' name='loan_id' value='" . $loanDetails['loan_id'] . "'>
-                                    </label>
-                                    <p><strong>Date:</strong> $date</p>
-                                </div>
-                                <div class='msg'></div>
-                                <br>
-                                <button type='submit' class='btn btn-success' id='guarantorAccept' $button>Submit Undertaking</button>
-                                <button type='submit' class='btn btn-danger' id='guarantorDecline' formnovalidate $button>Decline to Guarantee</button>
-                          </form>    
-                        </div>
-                    </div>
-                </body>
-            </html>";
-    } else {
-        echo "<p>Loan details not found.</p>";
+    // Stage tabs on the officers' loans pages: key => [label, stage labels from loanStageLabel()]
+    public static function officerLoanTabs($role)
+    {
+        $tabs = [
+            'review'    => [$role === 'treasurer' ? 'To review' : 'With Treasurer', ['Awaiting Treasurer']],
+            'authorize' => [$role === 'chairman' ? 'To authorize' : 'With Chairman', ['Awaiting Chairman']],
+            'payout'    => [$role === 'treasurer' ? 'To pay out' : 'Awaiting payment', ['Awaiting disbursement']],
+            'repaying'  => ['Repaying', ['Repaying']],
+            'overdue'   => ['Overdue', []],
+            'guarantor' => ['Awaiting guarantor', ['Awaiting guarantor']],
+            'repaid'    => ['Fully repaid', ['Fully repaid']],
+            'declined'  => ['Declined', ['Declined by guarantor', 'Declined by Treasurer', 'Declined by Chairman']],
+        ];
+        // the role's own work first
+        $first = ['treasurer' => ['review', 'payout'], 'chairman' => ['authorize'], 'secretary' => []];
+        $ordered = ['all' => ['All', null]];
+        foreach (isset($first[$role]) ? $first[$role] : [] as $k) {
+            $ordered[$k] = $tabs[$k];
+        }
+        return $ordered + $tabs;
     }
-}
+
+    // All loans for the officers' loans pages, with stage, totals and overdue arrears
+    public function officerLoans()
+    {
+        require_once('LoanControls.php');
+        $con = (new DB())->getConnection();
+        $rows = $con->query("SELECT l.*, t.loan_type_name, e.sp_no, e.title, e.fname, e.lname, e.oname, e.dept,
+                                    (SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_loan_repayments r
+                                      WHERE r.loan_id = l.loan_id AND r.status = 1 AND COALESCE(r.is_deleted, 0) = 0) AS repaid
+                             FROM fudscoops_loan l
+                             JOIN fudscoops_member m ON m.member_id = l.member_id
+                             JOIN employee e ON e.employee_id = m.employee_id
+                             LEFT JOIN fudscoops_loan_type t ON t.loan_type_id = l.loan_type_id
+                             ORDER BY l.loan_id DESC")->fetchAll(PDO::FETCH_ASSOC);
+        $overdue = [];
+        foreach (LoanControls::overdueLoans() as $od) {
+            $overdue[(int) $od['loan_id']] = $od['arrears'];
+        }
+        foreach ($rows as &$r) {
+            $r['stage'] = self::loanStageLabel($r);
+            $r['fixed'] = $r['loan_status'] !== 'pending' && !empty($r['amount_recommended']);
+            $r['total'] = self::loanTotalPayable($r);
+            $r['is_debt'] = in_array($r['loan_status'], ['Disbursed', 'Approved', 'Repaid'], true);
+            $r['balance'] = $r['is_debt'] ? max(0, $r['total'] - $r['repaid']) : 0;
+            $r['arrears'] = isset($overdue[(int) $r['loan_id']]) ? $overdue[(int) $r['loan_id']] : 0;
+        }
+        return $rows;
+    }
+
+    // The member's loans with their figures (R/view_loan_approval.php), newest first
+    public function myLoans($memberId)
+    {
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("SELECT l.*, t.loan_type_name, g.title AS g_title, g.fname AS g_fname, g.lname AS g_lname, g.sp_no AS g_sp_no,
+                                      (SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_loan_repayments r
+                                        WHERE r.loan_id = l.loan_id AND r.status = 1 AND COALESCE(r.is_deleted, 0) = 0) AS repaid
+                               FROM fudscoops_loan l
+                               LEFT JOIN fudscoops_loan_type t ON t.loan_type_id = l.loan_type_id
+                               LEFT JOIN employee g ON g.employee_id = l.guarantor_employee_id
+                               WHERE l.member_id = :m ORDER BY l.loan_id DESC");
+        $stmt->execute([':m' => $memberId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$r) {
+            $r['stage'] = self::loanStageLabel($r);
+            $r['fixed'] = $r['loan_status'] !== 'pending' && !empty($r['amount_recommended']);
+            $r['total'] = self::loanTotalPayable($r);
+            $r['is_debt'] = in_array($r['loan_status'], ['Disbursed', 'Approved', 'Repaid'], true);
+            $r['monthly'] = $r['is_debt'] ? (float) $this->getRepaymentAmount($r['loan_id'], $memberId) : ($r['fixed'] ? $r['total'] / max(1, (int) $r['loan_tenor']) : 0);
+            $r['balance'] = $r['is_debt'] ? max(0, $r['total'] - $r['repaid']) : 0;
+            $reason = '';
+            if ($r['guarantor_status'] == -1) {
+                $reason = $r['guarantor_comment'];
+            } elseif ($r['loan_status'] === 'Disapprove') {
+                $reason = $r['chairman_approval'] == -1 ? $r['chairman_comment'] : $r['treasurer_comment'];
+            }
+            $r['decline_reason'] = trim((string) $reason);
+        }
+        return $rows;
+    }
+
+    // Loans this staff member was asked to guarantee (R/guarantee.php), newest first
+    public function guaranteeRequests($employeeId)
+    {
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("SELECT l.*, t.loan_type_name, e.sp_no, e.title, e.fname, e.lname, e.oname, e.dept,
+                                      (SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_loan_repayments r
+                                        WHERE r.loan_id = l.loan_id AND r.status = 1 AND COALESCE(r.is_deleted, 0) = 0) AS repaid
+                               FROM fudscoops_loan l
+                               JOIN fudscoops_member m ON m.member_id = l.member_id
+                               JOIN employee e ON e.employee_id = m.employee_id
+                               LEFT JOIN fudscoops_loan_type t ON t.loan_type_id = l.loan_type_id
+                               WHERE l.guarantor_employee_id = :e
+                               ORDER BY l.loan_id DESC");
+        $stmt->execute([':e' => $employeeId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$r) {
+            $r['stage'] = self::loanStageLabel($r);
+            $r['total'] = self::loanTotalPayable($r);
+            $r['balance'] = max(0, $r['total'] - $r['repaid']);
+        }
+        return $rows;
+    }
+
+    // Guarantor undertaking. $viewerEmployeeId: the logged-in member (only the loan's guarantor may open it and
+    // decide); null = officer view (read-only). The form is submitted by js/custom.js (.undertaking-form).
+    public function guarantorUndertakingPage($loanId, $viewerEmployeeId = null)
+    {
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("SELECT l.*, t.loan_type_name,
+                                      a.sp_no, a.title, a.fname, a.lname, a.oname, a.dept, a.phone_no,
+                                      g.sp_no AS g_sp_no, g.title AS g_title, g.fname AS g_fname, g.lname AS g_lname, g.oname AS g_oname,
+                                      g.dept AS g_dept, g.phone_no AS g_phone, g.permanent_address AS g_address, g.nature_of_appo AS g_appointment
+                               FROM fudscoops_loan l
+                               JOIN fudscoops_member m ON m.member_id = l.member_id
+                               JOIN employee a ON a.employee_id = m.employee_id
+                               LEFT JOIN employee g ON g.employee_id = l.guarantor_employee_id
+                               LEFT JOIN fudscoops_loan_type t ON t.loan_type_id = l.loan_type_id
+                               WHERE l.loan_id = :id");
+        $stmt->execute([':id' => (int) $loanId]);
+        $loan = $stmt->fetch(PDO::FETCH_ASSOC);
+        $h = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
+        $back = $viewerEmployeeId === null ? 'loans.php' : 'guarantee.php';
+        if (!$loan || ($viewerEmployeeId !== null && (int) $loan['guarantor_employee_id'] !== (int) $viewerEmployeeId)) {
+            echo '<div class="fud-notice"><i class="mdi mdi-alert-circle"></i><span>This guarantee request was not found.</span>'
+               . '<a href="' . $back . '">Back <i class="mdi mdi-arrow-right"></i></a></div>';
+            return;
+        }
+        if (empty($loan['g_sp_no'])) {
+            echo '<div class="fud-notice"><i class="mdi mdi-information-outline"></i><span>This loan has no guarantor on record.</span></div>';
+            return;
+        }
+        require_once('Settings.php');
+        $name = function ($t, $f, $l, $o) { return preg_replace('/\s+/', ' ', trim("$t $f $l $o")); };
+        $applicant = $name($loan['title'], $loan['fname'], $loan['lname'], $loan['oname']);
+        $guarantor = $name($loan['g_title'], $loan['g_fname'], $loan['g_lname'], $loan['g_oname']);
+        $money = function ($v) { return '₦' . number_format((float) $v, 2); };
+        $fixed = $loan['loan_status'] !== 'pending' && !empty($loan['amount_recommended']);
+        $total = self::loanTotalPayable($loan);
+        $stage = self::loanStageLabel($loan);
+        $pill = in_array($stage, ['Repaying', 'Fully repaid'], true) ? 'ok' : (strpos($stage, 'Declined') === 0 ? 'no' : 'wait');
+        $canDecide = $viewerEmployeeId !== null && (int) $loan['guarantor_status'] === 0;
+        $maxOpen = (int) Settings::get('guarantor_max_open_loans', 2);
+        $row = function ($label, $value) use ($h) { echo '<tr><th>' . $label . '</th><td>' . ($value === '' || $value === null ? '–' : $h($value)) . '</td></tr>'; };
+        ?>
+        <div class="fud-dash fud-apply fud-undertaking">
+          <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+            <div>
+              <h3 class="mb-1">Guarantor Undertaking <span class="fud-pill <?php echo $pill; ?>"><?php echo $h($stage); ?></span></h3>
+              <div class="text-muted"><?php echo $h($applicant); ?> asked you to guarantee a <?php echo $h($loan['loan_type_name'] ?: 'loan'); ?>
+                · <?php echo date('d M Y', strtotime(substr($loan['loan_date'], 0, 10))); ?></div>
+            </div>
+            <a href="<?php echo $back; ?>" class="btn btn-light btn-sm"><i class="mdi mdi-arrow-left"></i> Back</a>
+          </div>
+
+          <div class="fud-stats">
+            <div class="fud-stat"><div class="fud-stat-icon fud-blue"><i class="mdi mdi-cash-multiple"></i></div>
+              <div><div class="fud-stat-label">Amount applied for</div><div class="fud-stat-value"><?php echo $money($loan['loan_amount']); ?></div>
+                <?php if ($fixed) { ?><div class="fud-stat-sub">approved <?php echo $money($loan['amount_recommended']); ?></div><?php } ?></div></div>
+            <div class="fud-stat"><div class="fud-stat-icon fud-amber"><i class="mdi mdi-percent"></i></div>
+              <div><div class="fud-stat-label">To be repaid</div><div class="fud-stat-value"><?php echo $fixed ? $money($total) : 'Not fixed yet'; ?></div>
+                <div class="fud-stat-sub"><?php echo $fixed ? 'including interest' : 'the Treasurer fixes the amount'; ?></div></div></div>
+            <div class="fud-stat"><div class="fud-stat-icon fud-purple"><i class="mdi mdi-calendar-clock"></i></div>
+              <div><div class="fud-stat-label">Repayment period</div><div class="fud-stat-value"><?php echo (int) $loan['loan_tenor']; ?> months</div></div></div>
+          </div>
+
+          <div class="row">
+            <div class="col-lg-7">
+              <div class="fud-section">
+                <div class="fud-section-head"><h5><span class="fud-num">1</span> The applicant and the loan</h5></div>
+                <div class="fud-section-body">
+                  <table class="table table-sm fud-table fud-details">
+                    <?php
+                      $row('Applicant', $applicant);
+                      $row('Staff number', $loan['sp_no']);
+                      $row('Department / unit', $loan['dept']);
+                      $row('Phone', $loan['phone_no']);
+                      $row('Loan', $loan['loan_type_name']);
+                      $row('Material(s) needed', $loan['iterm_name']);
+                      $row('Reason', $loan['reason']);
+                    ?>
+                  </table>
+                </div>
+              </div>
+              <div class="fud-section">
+                <div class="fud-section-head"><h5><span class="fud-num">2</span> <?php echo $viewerEmployeeId === null ? 'Guarantor' : 'Your details as guarantor'; ?></h5>
+                  <small class="text-muted">From the staff record</small></div>
+                <div class="fud-section-body">
+                  <table class="table table-sm fud-table fud-details">
+                    <?php
+                      $row('Name', $guarantor);
+                      $row('Staff number', $loan['g_sp_no']);
+                      $row('Department / unit', $loan['g_dept']);
+                      $row('Phone', $loan['g_phone']);
+                      $row('Permanent home address', $loan['g_address']);
+                      $row('Type of appointment', $loan['g_appointment']);
+                    ?>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-lg-5">
+              <div class="fud-section fud-summary">
+                <div class="fud-section-head"><h5><i class="mdi mdi-file-document-box"></i> Undertaking</h5></div>
+                <div class="fud-section-body">
+                  <ul class="fud-checks">
+                    <li>If <?php echo $h($loan['fname']); ?> does not repay, you may be held responsible for what is still owed.</li>
+                    <li>You are released when the loan is fully repaid.</li>
+                    <?php if ($maxOpen > 0) { ?><li>A member may guarantee at most <?php echo $maxOpen; ?> open loans at a time.</li><?php } ?>
+                  </ul>
+
+                  <?php if ($canDecide) { ?>
+                    <form class="undertaking-form">
+                      <input type="hidden" name="loan_id" value="<?php echo (int) $loan['loan_id']; ?>">
+                      <p class="fud-undertaking-text">I, <strong><?php echo $h($guarantor); ?></strong>, agree to serve as guarantor to
+                        <strong><?php echo $h($applicant); ?></strong> and to be held responsible in case of any default by the member.</p>
+                      <div class="custom-control custom-checkbox mb-3">
+                        <input type="checkbox" class="custom-control-input" id="undertakingAgreed" name="undertaking_agreed" required>
+                        <label class="custom-control-label" for="undertakingAgreed">I agree to be the guarantor.</label>
+                      </div>
+                      <div class="form-group">
+                        <label for="guarantor_comment">If you decline, you may say why <small class="text-muted">(optional)</small></label>
+                        <textarea name="guarantor_comment" id="guarantor_comment" class="form-control" rows="2"></textarea>
+                      </div>
+                      <div class="msg"></div>
+                      <button type="submit" class="btn btn-success btn-block btn-lg" id="guarantorAccept"><i class="mdi mdi-check"></i> Accept and sign</button>
+                      <button type="submit" class="btn btn-outline-danger btn-block" id="guarantorDecline" formnovalidate><i class="mdi mdi-close"></i> Decline to guarantee</button>
+                      <small class="text-muted d-block mt-2">Date: <?php echo date('d M Y'); ?></small>
+                    </form>
+                  <?php } elseif ((int) $loan['guarantor_status'] === 1) { ?>
+                    <div class="fud-notice success mb-0"><i class="mdi mdi-check-circle"></i>
+                      <span><?php echo $h($guarantor); ?> accepted on <?php echo $loan['guarantor_approved_date'] ? date('d M Y', strtotime($loan['guarantor_approved_date'])) : '–'; ?>.</span></div>
+                  <?php } elseif ((int) $loan['guarantor_status'] === -1) { ?>
+                    <div class="fud-notice mb-0"><i class="mdi mdi-close-circle"></i>
+                      <span>Declined<?php echo $loan['guarantor_approved_date'] ? ' on ' . date('d M Y', strtotime($loan['guarantor_approved_date'])) : ''; ?>.
+                        <?php echo !empty($loan['guarantor_comment']) ? 'Reason: ' . $h($loan['guarantor_comment']) : ''; ?></span></div>
+                  <?php } else { ?>
+                    <div class="fud-notice info mb-0"><i class="mdi mdi-clock-outline"></i><span>Waiting for the guarantor to decide.</span></div>
+                  <?php } ?>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <?php
+    }
+
+    // Officers' undertaking pages (Treasurer/Chairman/Secretary undertaking.php): read-only view
+    public function getUndertaking($loan_id) {
+        $this->guarantorUndertakingPage($loan_id, null);
+    }
+
 public function getSecretaryLoanDecisionOld($loan_id) {
     $comment='';
     $terget1 = date('n')-2;
@@ -1163,7 +1315,7 @@ public function getSecretaryLoanDecisionOld($loan_id) {
     $user = new User();
     // Fetch loan details based on loan_id
     $sql = "SELECT 
-                m.member_id, e.fname, e.lname, l.guarantor_employee_id,l.guarantor_status,
+                m.member_id, e.fname, e.lname, l.guarantor_employee_id,l.guarantor_status, l.guarantor_approved_date,
                 l.*
             FROM 
                 fudscoops_loan l
@@ -1183,6 +1335,10 @@ public function getSecretaryLoanDecisionOld($loan_id) {
     
     if ($loanDetails) {
         $info = $user->getStaffInformationByEmployeeId($loanDetails['guarantor_employee_id']);
+        if (!is_array($info)) {
+            echo "<p>This loan has no guarantor on record.</p>";
+            return;
+        }
         $applicant_info=$user->getStaffInformationByMemberId($loanDetails['member_id']);
             $date = $loanDetails['guarantor_approved_date'];
         
@@ -1378,7 +1534,7 @@ public function getLoanUndertakingOld($loan_id) {
     $decision=1;
     // Fetch loan details based on loan_id
     $sql = "SELECT 
-                m.member_id, e.fname, e.lname, l.guarantor_employee_id,l.guarantor_status,
+                m.member_id, e.fname, e.lname, l.guarantor_employee_id,l.guarantor_status, l.guarantor_approved_date,
                 l.*
             FROM 
                 fudscoops_loan l
@@ -1398,6 +1554,10 @@ public function getLoanUndertakingOld($loan_id) {
     
     if ($loanDetails) {
         $info = $user->getStaffInformationByEmployeeId($loanDetails['guarantor_employee_id']);
+        if (!is_array($info)) {
+            echo "<p>This loan has no guarantor on record.</p>";
+            return;
+        }
         $applicant_info=$user->getStaffInformationByMemberId($loanDetails['member_id']);
             $date = $loanDetails['guarantor_approved_date'];
            
@@ -1649,6 +1809,9 @@ public function updateLoanTenor($loan_id,$tenor) {
         if (!in_array($action, ['proceed', 'decline'], true)) {
             return 'Please click Authorize or Decline.';
         }
+        if ($action === 'decline' && trim((string) $comment) === '') {
+            return 'Give the reason for declining in the comment; the member will see it.';
+        }
         $con = (new DB())->getConnection();
         $stmt = $con->prepare("UPDATE fudscoops_loan
                                SET chairman_approval = :decision, chairman_approval_date = :date, chairman_comment = :comment,
@@ -1750,9 +1913,10 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
     
 }
 
-    public function saveRepayment($loan_id, $member_id, $amount_paid, $repayment_date, $loan_repayment_amount) {
+    // $allowRepaid: the batch upload records deductions taken after a loan was fully repaid; they become an overpayment
+    public function saveRepayment($loan_id, $member_id, $amount_paid, $repayment_date, $loan_repayment_amount, $allowRepaid = false) {
     $con = (new DB())->getConnection();
-    $stmt = $con->prepare("SELECT 1 FROM fudscoops_loan WHERE loan_id = :loan_id AND member_id = :member_id AND loan_status IN ('Disbursed', 'Approved')");
+    $stmt = $con->prepare("SELECT 1 FROM fudscoops_loan WHERE loan_id = :loan_id AND member_id = :member_id AND loan_status IN ('Disbursed', 'Approved'" . ($allowRepaid ? ", 'Repaid'" : "") . ")");
     $stmt->execute([':loan_id' => $loan_id, ':member_id' => $member_id]);
     if (!$stmt->fetchColumn()) {
         return 0;
@@ -1776,6 +1940,9 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
     }
     if ($ok) {
         $this->updateRepaidStatus($loan_id);
+        // Deductions past what the loan owes are recorded as an overpayment for the member to decide on
+        require_once('LoanControls.php');
+        LoanControls::syncOverpayment($loan_id);
     }
     return $ok ? 1 : 0;
 }
@@ -1869,6 +2036,9 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
         if (!$type) {
             return 'Unknown loan type.';
         }
+        if (stripos($type['loan_type_name'], 'soft') !== false && !self::softLoansOpen()) {
+            return 'Soft loans are closed at the moment.';
+        }
         if (stripos($type['loan_type_name'], 'soft') !== false && !$this->isTargetSaving($memberId)) {
             return 'Soft loans are only available to members on target savings.';
         }
@@ -1887,7 +2057,7 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
             }
         }
 
-        $multiple = (float) Settings::get('loan_max_savings_multiple', 2);
+        $multiple = (float) Settings::get('loan_max_savings_multiple', 3);
         if ($multiple > 0) {
             $balance = self::memberSavingsBalance($con, $memberId);
             $owing = array_sum(array_map(function ($l) { return $l['amount'] - $l['repaid']; }, $live));
@@ -1936,8 +2106,9 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
     {
         $stmt = $con->prepare("SELECT
                 (SELECT COALESCE(SUM(savings_amount), 0) FROM fudscoops_savings WHERE member_idmember = :m1)
-              - (SELECT COALESCE(SUM(approved_withrawal_amount), 0) FROM fudscoops_withrawals WHERE member_id = :m2 AND chairman_approval = 1)");
-        $stmt->execute([':m1' => $memberId, ':m2' => $memberId]);
+              - (SELECT COALESCE(SUM(approved_withrawal_amount), 0) FROM fudscoops_withrawals WHERE member_id = :m2 AND chairman_approval = 1)
+              - (SELECT COALESCE(SUM(c.approved_amount + CASE WHEN c.settled_at IS NOT NULL THEN c.amount_owed ELSE 0 END), 0) FROM fudscoops_complete_withrawal c JOIN fudscoops_member cm ON cm.employee_id = c.employee_id WHERE cm.member_id = :m3 AND c.chairman_approval = 1 AND COALESCE(c.complete_withrawal_is_deleted, 0) = 0)");
+        $stmt->execute([':m1' => $memberId, ':m2' => $memberId, ':m3' => $memberId]);
         return (float) $stmt->fetchColumn();
     }
 
@@ -2066,7 +2237,7 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
             'type_id'   => $typeId,
             'max_tenor' => $type ? (int) $type['loan_type_max_tenor'] : 0,
             'savings'   => self::memberSavingsBalance($con, $memberId),
-            'multiple'  => (float) Settings::get('loan_max_savings_multiple', 2),
+            'multiple'  => (float) Settings::get('loan_max_savings_multiple', 3),
             'limit'     => $this->loanLimit($memberId),
             'rate'      => self::loanInterestRate(),
             'open_loan' => $openLoan,
@@ -2078,7 +2249,7 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
     {
         require_once('Settings.php');
         $con = (new DB())->getConnection();
-        $multiple = (float) Settings::get('loan_max_savings_multiple', 2);
+        $multiple = (float) Settings::get('loan_max_savings_multiple', 3);
         if ($multiple <= 0) {
             return null; // no limit
         }
@@ -2092,6 +2263,13 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
             return (float) $loan['total_payable'];
         }
         return (float) (!empty($loan['amount_recommended']) ? $loan['amount_recommended'] : $loan['loan_amount']);
+    }
+
+    // Soft loans can be closed in Savings Settings (soft_loan_open); closed from 2026-10-14
+    public static function softLoansOpen()
+    {
+        require_once('Settings.php');
+        return (int) Settings::get('soft_loan_open', 0) === 1;
     }
 
     public static function loanInterestRate()
@@ -2146,6 +2324,19 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
             <span class="fud-pill <?php echo $pill; ?>" style="font-size:.85rem"><?php echo htmlspecialchars($stage); ?></span>
           </div>
 
+          <?php
+            require_once('LoanControls.php');
+            foreach (LoanControls::overdueLoans($loan['member_id']) as $od) {
+                if ((int) $od['loan_id'] === (int) $loan['loan_id']) { ?>
+            <div class="fud-notice"><i class="mdi mdi-alert-circle"></i><span>Overdue: behind by <strong><?php echo $money($od['arrears']); ?></strong><?php echo $od['missed'] ? ' (missed or short: ' . htmlspecialchars(implode(', ', array_map(function ($ym) { return date('M Y', strtotime($ym . '-01')); }, $od['missed']))) . ')' : ''; ?>.</span></div>
+          <?php } }
+            foreach (LoanControls::overpayments(null, $loan['member_id']) as $op) {
+                if ((int) $op['loan_id'] === (int) $loan['loan_id']) { ?>
+            <div class="fud-notice info"><i class="mdi mdi-cash-refund"></i><span>Overpaid by <strong><?php echo $money($op['amount']); ?></strong>:
+              <?php echo $op['status'] === 'open' ? 'waiting for the member to choose what to do with it.' : 'the member chose ' . htmlspecialchars($op['member_choice'] === 'loan' ? 'to pay another loan' : ($op['member_choice'] === 'savings' ? 'to add it to savings' : 'a refund')) . '.'; ?></span>
+              <?php if ($role === 'treasurer') { ?><a href="overpayments.php">Overpayments <i class="mdi mdi-arrow-right"></i></a><?php } ?></div>
+          <?php } } ?>
+
           <?php if ($current >= 0) { ?>
           <div class="fud-section"><div class="fud-section-body">
             <div class="fud-steps">
@@ -2188,6 +2379,22 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
                     $row('Share capital', $money($shares));
                   ?>
                 </table>
+                <?php
+                  // Payslips for the last three months of this year (slip.php only serves the current year)
+                  $payslipMonths = [];
+                  for ($k = 1; $k <= 3; $k++) {
+                      $time = strtotime("first day of -$k month");
+                      if (date('Y', $time) == date('Y')) {
+                          $payslipMonths[date('n', $time)] = date('F', $time);
+                      }
+                  }
+                  if ($payslipMonths) { ?>
+                  <p class="mb-3"><strong>Payslips:</strong>
+                    <?php foreach ($payslipMonths as $month => $monthName) { ?>
+                      <a href="slip.php?legacy=<?php echo urlencode($loan['sp_no']); ?>&s=<?php echo $month; ?>" class="ml-2"><?php echo $monthName; ?></a>
+                    <?php } ?>
+                  </p>
+                <?php } ?>
                 <h6 class="mt-3">Supplier</h6>
                 <table class="table table-sm fud-table">
                   <?php
@@ -2209,7 +2416,7 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
                     $row('Staff number', $loan['g_sp_no']);
                     $row('Department', $loan['g_dept']);
                     $row('Phone', $loan['g_phone']);
-                    $row('Decision', $loan['guarantor_status'] == 1 ? 'Accepted' . ($loan['guarantor_approved_date'] ? ' on ' . $loan['guarantor_approved_date'] : '') : ($loan['guarantor_status'] == -1 ? 'Declined' : 'Not yet decided'));
+                    $row('Decision', $loan['guarantor_status'] == 1 ? 'Accepted' . ($loan['guarantor_approved_date'] ? ' on ' . $loan['guarantor_approved_date'] : '') : ($loan['guarantor_status'] == -1 ? 'Declined' . ($loan['guarantor_comment'] ? ' – ' . $loan['guarantor_comment'] : '') : 'Not yet decided'));
                   ?>
                 </table>
               </div></div>
@@ -2236,7 +2443,7 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
                   <input type="number" class="form-control" id="loanAmount" min="1" max="<?php echo $maxAmount; ?>" step="0.01" value="<?php echo htmlspecialchars($loan['amount_recommended'] ?: min((float) $loan['loan_amount'], $maxAmount)); ?>"></div>
                 <div class="col-md-3 mb-2"><label class="small mb-1">Repayment period</label>
                   <select class="form-control" id="loanTenor"><?php for ($t = 1; $t <= max(1, $maxTenor); $t++) { echo "<option value='$t'" . ($t == $loan['loan_tenor'] ? ' selected' : '') . ">$t month" . ($t > 1 ? 's' : '') . "</option>"; } ?></select></div>
-                <div class="col-md-5 mb-2"><label class="small mb-1">Comment</label>
+                <div class="col-md-5 mb-2"><label class="small mb-1">Comment (required when declining)</label>
                   <input type="text" class="form-control" id="loanComment" value="<?php echo htmlspecialchars((string) $loan['treasurer_comment']); ?>"></div>
               </div>
               <p class="mb-3" id="loanPreview" data-rate="<?php echo self::loanInterestRate(); ?>"></p>
@@ -2255,7 +2462,7 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
               <p class="mb-2">The Treasurer fixed <strong><?php echo $money($loan['amount_recommended']); ?></strong> over <strong><?php echo (int) $loan['loan_tenor']; ?> month(s)</strong>
                 + <?php echo rtrim(rtrim(number_format($rate, 2), '0'), '.'); ?>% interest (<?php echo $money($loan['interest_amount']); ?>) = <strong><?php echo $money($total); ?></strong>,
                 about <?php echo $money($total / max(1, (int) $loan['loan_tenor'])); ?> a month.</p>
-              <div class="form-group"><label class="small mb-1">Comment</label><input type="text" class="form-control" id="loanComment"></div>
+              <div class="form-group"><label class="small mb-1">Comment (required when declining)</label><input type="text" class="form-control" id="loanComment"></div>
               <button class="btn btn-success loan-btn" data-action="authorize">Authorize Loan</button>
               <button class="btn btn-outline-danger loan-btn" data-action="chairman_decline">Decline Loan</button>
             <?php } elseif ($role === 'chairman' && in_array($loan['loan_status'], ['Approve', 'Disapprove'], true) && $loan['guarantor_status'] == 1 && empty($loan['disbursement_date'])) { ?>
@@ -2365,6 +2572,9 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
         }
 
         if (!$recommend) {
+            if (trim((string) $comment) === '') {
+                return 'Give the reason for declining in the comment; the member will see it.';
+            }
             $stmt = $con->prepare("UPDATE fudscoops_loan SET loan_status = 'Disapprove', treasurer_comment = :comment, treasurer_date = CURDATE(),
                                    update_at = :date, is_action_disabled = 1 WHERE loan_id = :id");
             $stmt->execute([':comment' => (string) $comment, ':date' => date('Y-m-d'), ':id' => $loan_id]);
@@ -2395,7 +2605,7 @@ public function saveRepayment2($loan_id,$member_id,$amount_paid,$repayment_date,
                                    total_payable = :total, treasurer_comment = :comment, treasurer_date = CURDATE(), update_at = :date,
                                    loan_status = 'Recommended'
                                WHERE loan_id = :id");
-        $stmt->execute([':amount' => (int) round($amount), ':tenor' => (string) (int) $tenor, ':rate' => $rate, ':interest' => $interest,
+        $stmt->execute([':amount' => (string) round($amount, 2), ':tenor' => (string) (int) $tenor, ':rate' => $rate, ':interest' => $interest,
                         ':total' => $amount + $interest, ':comment' => (string) $comment, ':date' => date('Y-m-d'), ':id' => $loan_id]);
         return 1;
     }

@@ -46,7 +46,9 @@ class Dashboard{
     public function cooperativeTotals()
     {
         $savings = $this->value("SELECT COALESCE(SUM(savings_amount), 0) FROM fudscoops_savings WHERE COALESCE(savings_is_deleted, 0) = 0");
-        $withdrawn = $this->value("SELECT COALESCE(SUM(approved_withrawal_amount), 0) FROM fudscoops_withrawals WHERE chairman_approval = 1 AND COALESCE(withrawals_is_deleted, 0) = 0");
+        $withdrawn = $this->value("SELECT COALESCE(SUM(approved_withrawal_amount), 0) FROM fudscoops_withrawals WHERE chairman_approval = 1 AND COALESCE(withrawals_is_deleted, 0) = 0")
+                   + $this->value("SELECT COALESCE(SUM(approved_amount + CASE WHEN settled_at IS NOT NULL THEN amount_owed ELSE 0 END), 0) FROM fudscoops_complete_withrawal
+                                   WHERE chairman_approval = 1 AND COALESCE(complete_withrawal_is_deleted, 0) = 0");
         $loans = $this->value("SELECT COALESCE(SUM(COALESCE(total_payable, NULLIF(amount_recommended, 0), loan_amount)), 0) FROM fudscoops_loan WHERE loan_status IN ('Disbursed', 'Approved')");
         $repaid = $this->value("SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_loan_repayments r JOIN fudscoops_loan l ON l.loan_id = r.loan_id
                                 WHERE r.status = 1 AND COALESCE(r.is_deleted, 0) = 0 AND l.loan_status IN ('Disbursed', 'Approved')");
@@ -69,6 +71,9 @@ class Dashboard{
     public function pendingFor($role)
     {
         $c = function ($sql) { return (int) $this->value($sql); };
+        // Overdue loans (LoanControls::overdueLoans) are shown to the Treasurer, Chairman and Secretary
+        require_once('LoanControls.php');
+        $overdue = ['Overdue loans', count(LoanControls::overdueLoans()), 'mdi-alert-circle', 'overdue_loans.php'];
         switch ($role) {
             case 'chairman':
                 return [
@@ -80,6 +85,7 @@ class Dashboard{
                     ['Share transfers to approve', $c("SELECT COUNT(*) FROM fudscoops_shares_transfer WHERE share_transfer_is_deleted = 0 AND is_accepted = 1 AND share_transfer_status = 0 AND secretary_endorsement = 1 AND chairman_approval = 0"), 'mdi-swap-horizontal', 'manage_share_transfer.php'],
                     ['Share conversions to approve', $c("SELECT COUNT(*) FROM fudscoops_shares_conversion WHERE share_conversion_is_deleted = 0 AND conversion_status = 0 AND chairman_approval = 0"), 'mdi-sync', 'manage_share_conversion.php'],
                     ['Loans to authorize', $c("SELECT COUNT(*) FROM fudscoops_loan WHERE loan_status = 'Recommended' AND chairman_approval = 0"), 'mdi-cash-multiple', 'loans.php'],
+                    $overdue,
                     ['Commodity requests to authorize', $c("SELECT COUNT(*) FROM fudscoops_commodity_loan_applications WHERE status = 'recommended'"), 'mdi-cart-outline', 'approved_commodity_Request.php?stage=recommended'],
                 ];
             case 'treasurer':
@@ -93,6 +99,8 @@ class Dashboard{
                     ['Share conversions to complete', $c("SELECT COUNT(*) FROM fudscoops_shares_conversion WHERE share_conversion_is_deleted = 0 AND chairman_approval = 1 AND conversion_status = 0"), 'mdi-sync', 'manage_share_conversion.php'],
                     ['Loan applications to review', $c("SELECT COUNT(*) FROM fudscoops_loan WHERE guarantor_status = 1 AND loan_status = 'pending'"), 'mdi-cash-multiple', 'loans.php'],
                     ['Loans to pay out', $c("SELECT COUNT(*) FROM fudscoops_loan WHERE loan_status = 'Approve' AND chairman_approval = 1"), 'mdi-bank-transfer', 'loans.php'],
+                    $overdue,
+                    ['Loan overpayments to settle', $c("SELECT COUNT(*) FROM fudscoops_loan_overpayments WHERE status = 'chosen'"), 'mdi-cash-refund', 'overpayments.php'],
                     ['Commodity requests to review', $c("SELECT COUNT(*) FROM fudscoops_commodity_loan_applications WHERE status = 'pending'"), 'mdi-cart-outline', 'view_commodity_request.php?stage=pending'],
                     ['Commodity to supply', $c("SELECT COUNT(*) FROM fudscoops_commodity_loan_applications WHERE status = 'authorized'"), 'mdi-truck', 'view_commodity_request.php?stage=authorized'],
                 ];
@@ -102,6 +110,7 @@ class Dashboard{
                     ['Share transfers to endorse', $c("SELECT COUNT(*) FROM fudscoops_shares_transfer WHERE share_transfer_is_deleted = 0 AND is_accepted = 1 AND share_transfer_status = 0 AND secretary_endorsement = 0"), 'mdi-swap-horizontal', 'manage_share_transfer.php'],
                     ['Membership applications in progress', $c("SELECT COUNT(*) FROM fudscoops_member WHERE NOT (treasurer_approval = 1 AND chairman_approval = 1) AND is_deleted = 0"), 'mdi-account-plus', 'member_list.php'],
                     ['Loan applications in progress', $c("SELECT COUNT(*) FROM fudscoops_loan WHERE loan_status IN ('pending', 'Recommended', 'Approve') AND guarantor_status <> -1"), 'mdi-cash-multiple', 'loans.php'],
+                    $overdue,
                     ['Commodity requests in progress', $c("SELECT COUNT(*) FROM fudscoops_commodity_loan_applications WHERE status IN ('pending', 'recommended', 'authorized')"), 'mdi-cart-outline', 'view_commodity_request.php'],
                 ];
         }
@@ -157,6 +166,92 @@ class Dashboard{
     }
 
     // Requests the member is waiting on
+    // A member's savings statement (R/savings/savings_history.php): every saving and approved withdrawal, oldest first,
+    // with a running balance (the same sums as LoanControls::savingsBalance), plus requests still pending.
+    public function memberStatement($memberId, $employeeId)
+    {
+        $lines = [];
+        // Overpayments the Treasurer added to savings (LoanControls::settleOverpayment saves them as a dated savings row)
+        $stmt = $this->con->prepare("SELECT loan_id, amount, DATE(settled_at) d FROM fudscoops_loan_overpayments
+                                     WHERE member_id = :m AND status = 'settled' AND member_choice = 'savings'");
+        $stmt->execute([':m' => $memberId]);
+        $overpaid = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt = $this->con->prepare("SELECT savings_id, savings_amount, month, year, savings_date FROM fudscoops_savings WHERE member_idmember = :m");
+        $stmt->execute([':m' => $memberId]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $s) {
+            $monthStart = sprintf('%04d-%02d-01', (int) $s['year'], (int) $s['month']);
+            // Monthly savings uploaded without a date are placed at the start of their month
+            $date = $s['savings_date'] ?: $monthStart;
+            $label = 'Savings for ' . date('F Y', strtotime($monthStart));
+            foreach ($overpaid as $k => $o) {
+                if ($s['savings_date'] === $o['d'] && abs($s['savings_amount'] - round($o['amount'], 2)) < 0.01) {
+                    $label = 'Loan overpayment added to savings (loan #' . (int) $o['loan_id'] . ')';
+                    unset($overpaid[$k]);
+                    break;
+                }
+            }
+            $lines[] = ['date' => $date, 'sort' => $date . ' 0 ' . str_pad($s['savings_id'], 10, '0', STR_PAD_LEFT),
+                        'label' => $label, 'exact' => (bool) $s['savings_date'],
+                        'credit' => (float) $s['savings_amount'], 'debit' => 0, 'kind' => 'saving'];
+        }
+        $stmt = $this->con->prepare("SELECT withrawals_id, approved_withrawal_amount, approved_date, proposed_date, account_name, acount_number
+                                     FROM fudscoops_withrawals WHERE member_id = :m AND chairman_approval = 1");
+        $stmt->execute([':m' => $memberId]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $w) {
+            $date = substr($w['approved_date'] ?: $w['proposed_date'], 0, 10);
+            $lines[] = ['date' => $date, 'sort' => $date . ' 1 ' . str_pad($w['withrawals_id'], 10, '0', STR_PAD_LEFT),
+                        'label' => 'Withdrawal' . ($w['acount_number'] ? ' to account ' . $w['acount_number'] : ''), 'exact' => true,
+                        'credit' => 0, 'debit' => (float) $w['approved_withrawal_amount'], 'kind' => 'withdrawal'];
+        }
+        $stmt = $this->con->prepare("SELECT comp_withdrwal_id, approved_amount, amount_owed, settled_at, date_approved, date_applied
+                                     FROM fudscoops_complete_withrawal WHERE employee_id = :e AND chairman_approval = 1
+                                       AND COALESCE(complete_withrawal_is_deleted, 0) = 0");
+        $stmt->execute([':e' => $employeeId]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $c) {
+            $date = substr($c['date_approved'] ?: $c['date_applied'], 0, 10);
+            $lines[] = ['date' => $date, 'sort' => $date . ' 2 ' . str_pad($c['comp_withdrwal_id'], 10, '0', STR_PAD_LEFT),
+                        'label' => 'Complete withdrawal', 'exact' => true, 'credit' => 0, 'debit' => (float) $c['approved_amount'], 'kind' => 'withdrawal'];
+            if ($c['settled_at'] && (float) $c['amount_owed'] > 0) {
+                $lines[] = ['date' => $date, 'sort' => $date . ' 3 ' . str_pad($c['comp_withdrwal_id'], 10, '0', STR_PAD_LEFT),
+                            'label' => 'Loans and commodity paid from savings', 'exact' => true, 'credit' => 0, 'debit' => (float) $c['amount_owed'], 'kind' => 'withdrawal'];
+            }
+        }
+        usort($lines, function ($a, $b) { return strcmp($a['sort'], $b['sort']); });
+        $balance = 0;
+        foreach ($lines as &$l) {
+            $balance = round($balance + $l['credit'] - $l['debit'], 2);
+            $l['balance'] = $balance;
+        }
+        unset($l);
+
+        // Not yet in the balance: withdrawal requests awaiting approval, and overpayments the member chose to add to savings
+        $pending = [];
+        $stmt = $this->con->prepare("SELECT proposed_withrawal_amount, approved_withrawal_amount, proposed_date FROM fudscoops_withrawals
+                                     WHERE member_id = :m AND chairman_approval = 0 AND status <> -1 AND COALESCE(withrawals_is_deleted, 0) = 0");
+        $stmt->execute([':m' => $memberId]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $w) {
+            $pending[] = ['label' => 'Withdrawal request awaiting approval', 'date' => substr($w['proposed_date'], 0, 10),
+                          'amount' => -(float) ($w['approved_withrawal_amount'] > 0 ? $w['approved_withrawal_amount'] : $w['proposed_withrawal_amount'])];
+        }
+        $stmt = $this->con->prepare("SELECT amount, chosen_at FROM fudscoops_loan_overpayments WHERE member_id = :m AND status = 'chosen' AND member_choice = 'savings'");
+        $stmt->execute([':m' => $memberId]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $o) {
+            $pending[] = ['label' => 'Loan overpayment to be added to savings (waiting for the Treasurer)', 'date' => substr($o['chosen_at'], 0, 10),
+                          'amount' => (float) $o['amount']];
+        }
+        return ['lines' => $lines, 'pending' => $pending, 'balance' => $balance];
+    }
+
+    // Savings withdrawal requests the Treasurer rejected in the last 60 days, with the reason (member notices)
+    public function recentWithdrawalRejections($memberId)
+    {
+        $stmt = $this->con->prepare("SELECT withrawals_id, proposed_withrawal_amount, proposed_date, treasurer_comment, treasurer_decided_at
+                                     FROM fudscoops_withrawals WHERE member_id = :m AND status = -1 AND COALESCE(withrawals_is_deleted, 0) = 0
+                                       AND treasurer_decided_at >= NOW() - INTERVAL 60 DAY ORDER BY treasurer_decided_at DESC");
+        $stmt->execute([':m' => $memberId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     // Figures for the member's savings pages (R/savings/*.php, R/complete_withdrawal.php)
     public function memberSavingsInfo($memberId, $employeeId)
     {
@@ -169,7 +264,7 @@ class Dashboard{
             'pending_update' => $this->value("SELECT u.savings_update_amount FROM fudscoops_update_savings u
                                               WHERE u.employee_id = :e AND u.is_treasurer_approved = 0 AND u.is_secretary_approved IN (0, 1)
                                               ORDER BY u.id DESC LIMIT 1", [':e' => $employeeId]),
-            'pending_withdrawal' => $this->value("SELECT proposed_withrawal_amount FROM fudscoops_withrawals WHERE member_id = :m AND chairman_approval = 0
+            'pending_withdrawal' => $this->value("SELECT proposed_withrawal_amount FROM fudscoops_withrawals WHERE member_id = :m AND chairman_approval = 0 AND status <> -1
                                                   AND COALESCE(withrawals_is_deleted, 0) = 0 ORDER BY withrawals_id DESC LIMIT 1", [':m' => $memberId]),
             'pending_complete' => (int) $this->value("SELECT COUNT(*) FROM fudscoops_complete_withrawal WHERE employee_id = :e AND chairman_approval = 0 AND COALESCE(complete_withrawal_is_deleted, 0) = 0", [':e' => $employeeId]) > 0,
             'target' => $target->fetch(PDO::FETCH_ASSOC) ?: null,
@@ -192,7 +287,7 @@ class Dashboard{
         if ($update) {
             $items[] = ['Change of monthly savings to ₦' . number_format($update) . ' awaiting approval', 'mdi-cash-refund'];
         }
-        $withdrawals = (int) $this->value("SELECT COUNT(*) FROM fudscoops_withrawals WHERE member_id = :m AND chairman_approval = 0 AND COALESCE(withrawals_is_deleted, 0) = 0", [':m' => $memberId]);
+        $withdrawals = (int) $this->value("SELECT COUNT(*) FROM fudscoops_withrawals WHERE member_id = :m AND chairman_approval = 0 AND status <> -1 AND COALESCE(withrawals_is_deleted, 0) = 0", [':m' => $memberId]);
         if ($withdrawals) {
             $items[] = [$withdrawals . ' savings withdrawal request(s) awaiting approval', 'mdi-bank-transfer-out'];
         }

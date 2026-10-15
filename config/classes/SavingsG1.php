@@ -160,15 +160,37 @@ class SavingsG1{
                 }
         
     }
-     public function completeWithdrawal($spNo, $bank_id, $acct_no,$acct_name) {
-         
- 
+     // $settle: the member asks for what they owe (loans, commodity) to be paid from their savings and the rest paid out
+     public function completeWithdrawal($spNo, $bank_id, $acct_no,$acct_name, $settle = false) {
+
+
         $db = new DB();
         $user = new User();
         $con = $db->getConnection();
-        
+
         $employeeid = $user->getEmployeeId($spNo);
-        
+
+        // Leaving members must not owe anything or be guaranteeing an open loan (LoanControls::leavingObligations)
+        require_once('LoanControls.php');
+        $memberId = $user->getMemberId($employeeid);
+        $balance = (float) (new MemberG1())->getCurrentSavingsAmount($spNo);
+        $obligations = LoanControls::leavingObligations($memberId, $employeeid, $balance);
+        if ($obligations['blockers']) {
+            return implode(' ', $obligations['blockers']);
+        }
+        if ($obligations['total_owed'] > 0 && !$settle) {
+            return 'You still owe ₦' . number_format($obligations['total_owed'], 2) . ' on loans or commodity. Repay it first, or choose to pay it from your savings.';
+        }
+        if ($settle && $obligations['total_owed'] > 0 && !$obligations['can_settle']) {
+            return 'Your savings (₦' . number_format($balance, 2) . ') do not cover what you owe (₦' . number_format($obligations['total_owed'], 2) . '). Repay the rest first.';
+        }
+        if ($obligations['payout'] <= 0) {
+            return 'There is nothing to pay out: your savings balance is ₦' . number_format($balance, 2) . '.';
+        }
+        if (!preg_match('/^\d{10}$/', trim((string) $acct_no))) {
+            return 'Enter the 10-digit account number.';
+        }
+
         $status = 1;
         $sql = "SELECT approved_amount 
                 FROM fudscoops_complete_withrawal
@@ -185,10 +207,13 @@ class SavingsG1{
             return "You have a pending Complete withdraw request";
         } else {
             // If no pending approval, insert a new record
-            $insert_sql = "INSERT INTO fudscoops_complete_withrawal (employee_id, bank_id, acount_number, account_name)
-                           VALUES (:employeeid, :bankid, :acountnumber, :account_name)";
-            
+            $insert_sql = "INSERT INTO fudscoops_complete_withrawal (employee_id, bank_id, acount_number, account_name, settle_from_savings, amount_owed)
+                           VALUES (:employeeid, :bankid, :acountnumber, :account_name, :settle, :owed)";
+
             $insert_stmt = $con->prepare($insert_sql);
+            $settleFlag = ($settle && $obligations['total_owed'] > 0) ? 1 : 0;
+            $insert_stmt->bindValue(':settle', $settleFlag, PDO::PARAM_INT);
+            $insert_stmt->bindValue(':owed', $obligations['total_owed']);
             $insert_stmt->bindParam(':employeeid', $employeeid);
             $insert_stmt->bindParam(':bankid', $bank_id);
             $insert_stmt->bindParam(':acountnumber', $acct_no);
@@ -513,7 +538,7 @@ class SavingsG1{
         if ($clean === '' || !is_numeric($clean)) {
             return null;
         }
-        return (int) round((float) $clean);
+        return round((float) $clean, 2); // naira and kobo
     }
 
     // Treasurer approves one savings update request (by fudscoops_update_savings.id) with the
@@ -558,7 +583,7 @@ class SavingsG1{
                     approved_at = NOW()
                 WHERE id = :id
             ");
-            $stmt1->bindParam(':amount', $amount, PDO::PARAM_INT);
+            $stmt1->bindParam(':amount', $amount, PDO::PARAM_STR);
             $stmt1->bindParam(':id', $updateId, PDO::PARAM_INT);
             $stmt1->execute();
 
@@ -578,7 +603,7 @@ class SavingsG1{
                 SET proposed_monthly_savings = :amount, savings_amount_update = CURDATE()
                 WHERE employee_id = :employee_id
             ");
-            $stmt2->bindParam(':amount', $amount, PDO::PARAM_INT);
+            $stmt2->bindParam(':amount', $amount, PDO::PARAM_STR);
             $stmt2->bindParam(':employee_id', $employeeId, PDO::PARAM_STR);
             $stmt2->execute();
 
@@ -617,7 +642,7 @@ class SavingsG1{
                     )
                 ";
                 $stmt1 = $con->prepare($sql1);
-                $stmt1->bindParam(':amount', $amount, PDO::PARAM_INT);
+                $stmt1->bindParam(':amount', $amount, PDO::PARAM_STR);
                 $stmt1->bindParam(':employee_id', $employeeId, PDO::PARAM_STR);
                 $stmt1->execute();
 
@@ -629,7 +654,7 @@ class SavingsG1{
                         WHERE employee_id = :employee_id
                     ";
                     $stmt2 = $con->prepare($sql2);
-                    $stmt2->bindParam(':amount', $amount, PDO::PARAM_INT);
+                    $stmt2->bindParam(':amount', $amount, PDO::PARAM_STR);
                     $stmt2->bindParam(':employee_id', $employeeId, PDO::PARAM_STR);
                     $stmt2->execute();
 

@@ -162,7 +162,7 @@
                             </td>
                             <td style="min-width: 150px">
                               <input type="number" class="form-control form-control-sm approved-amount"
-                                     min="<?php echo SavingsG1::getMinMonthlySavings(); ?>" step="1"
+                                     min="<?php echo SavingsG1::getMinMonthlySavings(); ?>" step="0.01"
                                      value="<?php echo htmlspecialchars($request['savings_update_amount']); ?>"
                                      data-requested="<?php echo htmlspecialchars($request['savings_update_amount']); ?>">
                             </td>

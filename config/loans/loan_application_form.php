@@ -29,7 +29,10 @@ if ($ctx['max_tenor'] > 0 && !in_array($ctx['max_tenor'], $tenors)) {
 }
 
 $blocked = null;
-if ($isSoft && !$ctx['is_target']) {
+if ($isSoft && !MemberG3::softLoansOpen()) {
+    $blocked = ['info', 'mdi-lock-outline', 'Soft loans are closed at the moment. You can still apply for a Business Loan.',
+                'business_loan.php', 'Business Loan'];
+} elseif ($isSoft && !$ctx['is_target']) {
     $blocked = ['info', 'mdi-target', 'Soft loans are available to members on target savings. Start a target savings plan to apply.',
                 'savings/target_savings_request.php', 'Target savings'];
 } elseif ($ctx['open_loan']) {

@@ -15,6 +15,10 @@
     $memberId = $user->getMemberId($employeeId);
     $balance = (float) $member->getCurrentSavingsAmount($_SESSION['username']);
     $info = (new Dashboard())->memberSavingsInfo($memberId, $employeeId);
+    // Loans, commodity and guarantees that stop or affect leaving (LoanControls::leavingObligations)
+    require_once('../config/classes/LoanControls.php');
+    $obligations = LoanControls::leavingObligations($memberId, $employeeId, $balance);
+    $owed = $obligations['total_owed'];
     $h = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
 
     echo $view->subHeader('../');
@@ -42,6 +46,13 @@
             <div class="fud-notice"><i class="mdi mdi-clock-outline"></i>
               <span>Your complete withdrawal request is awaiting approval.</span>
               <a href="index.php">Dashboard <i class="mdi mdi-arrow-right"></i></a></div>
+          <?php } elseif ($obligations['blockers'] || ($owed > 0 && !$obligations['can_settle']) || $obligations['payout'] <= 0) { ?>
+            <div class="fud-section"><div class="fud-section-head"><h5><i class="mdi mdi-lock-outline"></i> You cannot withdraw completely yet</h5></div>
+              <div class="fud-section-body"><ul class="mb-0">
+                <?php foreach ($obligations['blockers'] as $b) { ?><li class="mb-1"><?php echo $h($b); ?></li><?php } ?>
+                <?php if ($owed > 0 && !$obligations['can_settle']) { ?><li>You owe ₦<?php echo number_format($owed, 2); ?> on loans or commodity. Your savings do not cover it. Repay the rest first.</li><?php } ?>
+                <?php if (!$obligations['blockers'] && $owed <= 0 && $obligations['payout'] <= 0) { ?><li>There is nothing to pay out: your savings balance is ₦<?php echo number_format($balance, 2); ?>.</li><?php } ?>
+              </ul></div></div>
           <?php } else { ?>
 
           <div class="fud-notice"><i class="mdi mdi-alert-circle"></i>
@@ -90,7 +101,18 @@
                 <div class="fud-section fud-summary">
                   <div class="fud-section-head"><h5><i class="mdi mdi-file-document-box"></i> Confirm</h5></div>
                   <div class="fud-section-body">
-                    <dl class="fud-sum"><dt>Savings to withdraw</dt><dd>₦<?php echo number_format($balance, 2); ?></dd></dl>
+                    <dl class="fud-sum"><dt>Savings</dt><dd>₦<?php echo number_format($balance, 2); ?></dd>
+                      <?php if ($owed > 0) { ?>
+                        <?php foreach ($obligations['owed'] as $o) { ?><dt>Pays off <?php echo $h($o['label']); ?></dt><dd>−₦<?php echo number_format($o['balance'], 2); ?></dd><?php } ?>
+                      <?php } ?>
+                        <dt class="fud-total">Paid to you (everything left)</dt><dd class="fud-total">₦<?php echo number_format($obligations['payout'], 2); ?></dd>
+                    </dl>
+                    <?php if ($owed > 0) { ?>
+                      <div class="custom-control custom-checkbox mb-3">
+                        <input type="checkbox" class="custom-control-input" id="settleFromSavings" name="settle_from_savings" value="1" required>
+                        <label class="custom-control-label" for="settleFromSavings">Use my savings to pay the ₦<?php echo number_format($owed, 2); ?> I owe, and pay me the rest.</label>
+                      </div>
+                    <?php } ?>
                     <div class="custom-control custom-checkbox mb-3">
                       <input type="checkbox" class="custom-control-input" id="completeAgree" required>
                       <label class="custom-control-label" for="completeAgree">I ask to withdraw all my savings into the bank account above.</label>

@@ -127,6 +127,8 @@ class Report{
                                              AND COALESCE(withrawals_is_deleted, 0) = 0 AND DATE(approved_date) BETWEEN :from AND :to", $p);
         $withdrawalsTotal = $this->value("SELECT SUM(approved_withrawal_amount) FROM fudscoops_withrawals WHERE chairman_approval = 1
                                             AND COALESCE(withrawals_is_deleted, 0) = 0 AND DATE(approved_date) <= :to", $toEnd);
+        $completeTotal = (float) $this->value("SELECT SUM(approved_amount + CASE WHEN settled_at IS NOT NULL THEN amount_owed ELSE 0 END) FROM fudscoops_complete_withrawal
+                                            WHERE chairman_approval = 1 AND COALESCE(complete_withrawal_is_deleted, 0) = 0 AND DATE(date_approved) <= :to", $toEnd);
         $completePeriod = $this->value("SELECT SUM(approved_amount) FROM fudscoops_complete_withrawal WHERE chairman_approval = 1
                                           AND COALESCE(complete_withrawal_is_deleted, 0) = 0 AND DATE(date_approved) BETWEEN :from AND :to", $p);
 
@@ -168,7 +170,7 @@ class Report{
                 ['Savings deposited in period', $savingsPeriod, 'money'],
                 ['Savings withdrawn in period', $withdrawalsPeriod, 'money'],
                 ['Complete withdrawals in period', $completePeriod, 'money'],
-                ['Savings balance (all members)', $savingsTotal - $withdrawalsTotal, 'money'],
+                ['Savings balance (all members)', $savingsTotal - $withdrawalsTotal - $completeTotal, 'money'],
                 ['Shares bought in period', $sharesPeriod, 'money'],
                 ['Total share capital', $sharesTotal, 'money'],
                 ['Loans paid out in period', $loansPeriod['amt'], 'money'],
@@ -225,7 +227,7 @@ class Report{
                                      FROM fudscoops_withrawals w LEFT JOIN banks b ON b.id = w.bank_id
                                      WHERE w.member_id = :id AND COALESCE(w.withrawals_is_deleted, 0) = 0 AND DATE(w.proposed_date) <= :to
                                      ORDER BY w.proposed_date", $id);
-        $complete = $this->rows("SELECT date_applied, date_approved, approved_amount, chairman_approval FROM fudscoops_complete_withrawal
+        $complete = $this->rows("SELECT date_applied, date_approved, approved_amount, chairman_approval, amount_owed, settled_at FROM fudscoops_complete_withrawal
                                   WHERE employee_id = :emp AND COALESCE(complete_withrawal_is_deleted, 0) = 0 AND DATE(date_applied) <= :to
                                   ORDER BY date_applied", [':emp' => $m['employee_id'], ':to' => $to]);
         $shares = $this->rows("SELECT date, entry_type, amount_paid, unit_price FROM fudscoops_shares
@@ -239,7 +241,10 @@ class Report{
         $totalSavings = array_sum(array_column($savings, 'savings_amount'));
         $approvedWithdrawals = array_sum(array_map(function ($w) {
             return $w['chairman_approval'] == 1 ? $w['approved_withrawal_amount'] : 0;
-        }, $withdrawals));
+        }, $withdrawals)) + array_sum(array_map(function ($c) {
+            // approved complete withdrawals: paid out plus anything settled from savings
+            return $c['chairman_approval'] == 1 ? $c['approved_amount'] + ($c['settled_at'] ? $c['amount_owed'] : 0) : 0;
+        }, $complete));
 
         $status = $m['treasurer_approval'] == 1 && $m['chairman_approval'] == 1 ? 'Full member'
                 : ($m['treasurer_approval'] == 1 ? 'Awaiting Chairman' : 'Awaiting Treasurer');
@@ -374,7 +379,7 @@ class Report{
                                   WHERE c.chairman_approval = 1 AND COALESCE(c.complete_withrawal_is_deleted, 0) = 0
                                     AND DATE(c.date_approved) BETWEEN :from AND :to
                                   ORDER BY c.date_approved, e.fname", $p);
-        $pending = $this->value("SELECT COUNT(*) FROM fudscoops_withrawals WHERE chairman_approval = 0 AND COALESCE(withrawals_is_deleted, 0) = 0");
+        $pending = $this->value("SELECT COUNT(*) FROM fudscoops_withrawals WHERE chairman_approval = 0 AND status <> -1 AND COALESCE(withrawals_is_deleted, 0) = 0");
         $pendingComplete = $this->value("SELECT COUNT(*) FROM fudscoops_complete_withrawal WHERE chairman_approval = 0 AND COALESCE(complete_withrawal_is_deleted, 0) = 0");
 
         $mapRow = function ($amountKey, $dateKey) {

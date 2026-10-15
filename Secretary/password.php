@@ -13,7 +13,9 @@ $user    = new User();
 $members = new MemberG2();
 
 // --- Authentication / role checks -----------------------------------
-$user->is_authenticated('auth/');              // ensure logged in
+if (!User::is_authenticated('../auth/') || !User::isSecretary('../auth/logout.php')) {
+    exit(); // the checks only redirect; stop here so a reset cannot run without the Secretary's login
+}
 $employeeid = isset($_SESSION['username']) ? $user->getEmployeeId($_SESSION['username']) : null;
 $user->isSecretary('../auth/logout.php');     // ensure the user is secretary (redirect if not)
 
@@ -27,6 +29,8 @@ if (isset($_POST['update'])) {
 
         if ($result === 1) {
             $msg = "<div class='alert alert-success'>Password for <b>$username</b> has been reset successfully.</div>";
+        } elseif ($result === -2) {
+            $msg = "<div class='alert alert-warning'>This is an officer account; it cannot be reset here.</div>";
         } elseif ($result === -1) {
             $msg = "<div class='alert alert-danger'>Error: Could not reset password. Username may not exist.</div>";
         } else {

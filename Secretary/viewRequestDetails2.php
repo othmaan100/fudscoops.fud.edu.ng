@@ -413,7 +413,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         $.ajax({
-            url: '../../ajax/commodity_ajax.php',
+            url: '../ajax/commodity_ajax.php',
             type: 'POST',
             data: formData,
             processData: false,

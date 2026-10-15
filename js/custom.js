@@ -1,3 +1,18 @@
+// ===================== Portal address =====================
+// The portal's root address (e.g. https://fudscoops.fud.edu.ng/ on the live site, or
+// http://localhost/fudscoops.fud.edu.ng/ locally), worked out from where this file was loaded.
+// Every ajax/ call uses it, so the calls work from any folder (R/, R/savings/, Treasurer/ ...).
+var fudBase = (function () {
+    var script = document.currentScript;
+    if (!script) {
+        var all = document.getElementsByTagName('script');
+        for (var i = all.length - 1; i >= 0; i--) {
+            if (/js\/custom\.js(\?|$)/.test(all[i].src)) { script = all[i]; break; }
+        }
+    }
+    return script ? script.src.replace(/js\/custom\.js(\?.*)?$/, '') : '/';
+})();
+
 // ===================== Shared helpers =====================
 // Remember which submit button was clicked. Safari (and Firefox on Mac) do not focus a clicked button,
 // so checking fudClicked('id') recorded the wrong decision there.
@@ -46,7 +61,7 @@ function fudLoanSummary() {
 }
 function updateLoanStatus(loanId, status) {
     // Make an AJAX call to update the loan status
-    fetch(`../../ajax/guarantor_decision.php?loan_id=${loanId}&status=${status}`)
+    fetch(fudBase + `ajax/guarantor_decision.php?loan_id=${loanId}&status=${status}`)
         .then(response => response.json())
         .then(data => {
             if (data.success) {
@@ -91,7 +106,7 @@ $(document).ready(function () {
         // alert(username)
         $.ajax({
             type: "POST",
-            url: "ajax/login.php",
+            url: fudBase + "ajax/login.php",
             data: form_data,
             success: function(msg) {
                 //console.log(msg);
@@ -138,7 +153,7 @@ $(document).ready(function () {
         var country = $(this).val();
         // alert(country);
         $.ajax({
-            url: "ajax/get_states.php",
+            url: fudBase + "ajax/get_states.php",
             data: {'country':country},
             type: "POST",
             cache:false,
@@ -156,7 +171,7 @@ $(document).ready(function () {
         var state = $(this).val();
         // alert(country);
         $.ajax({
-            url: "ajax/get_lga.php",
+            url: fudBase + "ajax/get_lga.php",
             data: {'state':state},
             type: "POST",
             cache:false,
@@ -196,7 +211,7 @@ $(document).ready(function () {
         // alert(data)
         $('.msg').html('<div class="alert offset-md-4 col-4  alert-primary"><i> Saving please wait...</i></div>')
         $.ajax({
-            url: "../ajax/update_bio.php",
+            url: fudBase + "ajax/update_bio.php",
             data: data,
             type: "POST",
             // cache:false,
@@ -222,7 +237,7 @@ $(document).ready(function () {
         
         $('.msg').html('<div class="alert offset-md-4 col-4  alert-primary"><i> updaing please wait...</i></div>')
         $.ajax({
-            url: "../ajax/updateLoanTenor.php",
+            url: fudBase + "ajax/updateLoanTenor.php",
             data: data,
             type: "POST",
             // cache:false,
@@ -250,7 +265,7 @@ $(document).ready(function () {
         // alert(data)
         $('.msg').html('<div class="alert offset-md-4 col-4  alert-primary"><i> Saving please wait...</i></div>')
         $.ajax({
-            url: "../ajax/register_member.php",
+            url: fudBase + "ajax/register_member.php",
             data: data,
             type: "POST",
             // cache:false,
@@ -287,7 +302,7 @@ $(document).ready(function () {
 
         // items = JSON.parse(items)
         $.ajax({
-            url: "../ajax/register_slip.php",
+            url: fudBase + "ajax/register_slip.php",
             method: "POST",
             data: {"invoice":invoice},
             success: function (response,x) {
@@ -355,7 +370,7 @@ $(document).ready(function () {
 
         // items = JSON.parse(items)
         $.ajax({
-            url: "../ajax/secretary_member_endorse.php",
+            url: fudBase + "ajax/secretary_member_endorse.php",
             method: "POST",
             data: {"staff_no":staff_id},
             success: function (response,x) {
@@ -382,6 +397,10 @@ $(document).ready(function () {
          //=====================  Chairman Withdrawal Endorsement   ==================================
 
     $(document).on("click", ".chairman_approve_withdrawal", function(e) {
+        e.preventDefault();
+        if (!confirm("Approve this withdrawal?")) {
+            return;
+        }
         var withrawals_id = $(this).data("withrawal");
          var approveWithdrawal = $(this).data("approve");
         
@@ -390,21 +409,16 @@ $(document).ready(function () {
 
         // items = JSON.parse(items)
         $.ajax({
-            url: "../ajax/secretary_withdrawal_endorsement.php",
+            url: fudBase + "ajax/secretary_withdrawal_endorsement.php",
             method: "POST",
             data: {"withrawals_id":withrawals_id,"approve":approveWithdrawal},
-            success: function (response,x) { 
-                //alert(x);
-                //console.log(response);
-                console.log(response);
-                console.log(x);
-                if (x == 'success') {
-                     $('.msg').html('<div class="alert offset-md-2 col-6 msg alert-success text-primary"> Secretary Emdorsement of Withdrawal submitted successfully.</div>');
-                     setTimeout((function(){ window.location = '/Chairman/withdrawal_endorsement.php'  }), 500); 
-                   
-
-
-                    // location.reload()
+            success: function (response) {
+                // 1 = approved; otherwise the reason (e.g. the minimum savings balance would not stay)
+                if ($.trim(response) == '1') {
+                    alert('Withdrawal approved.');
+                    location.reload();
+                } else {
+                    alert(fudServerMessage(response, 'Could not approve the withdrawal. Please try again.'));
                 }
             }, error: function(xhr, status, error) {
                 // Request encountered an error
@@ -419,6 +433,10 @@ $(document).ready(function () {
        //=====================  Chairman Withdrawal Endorsement   ==================================
 
     $(document).on("click", ".chairman_approve_com_withdrawal", function(e) {
+        e.preventDefault();
+        if (!confirm("Approve this complete withdrawal? If the member chose to pay what they owe from savings, those payments are recorded now.")) {
+            return;
+        }
         var withrawals_id = $(this).data("withrawal");
          var approve = $(this).data("approve"); 
         var withdrawaltype = $(this).data("withdrawaltype");
@@ -427,21 +445,16 @@ $(document).ready(function () {
 
         // items = JSON.parse(items)
         $.ajax({
-            url: "../ajax/secretary_withdrawal_endorsement.php",
+            url: fudBase + "ajax/secretary_withdrawal_endorsement.php",
             method: "POST",
             data: {"withrawals_id":withrawals_id,"approve":approve,"withdrawaltype":withdrawaltype},
-            success: function (response,x) { 
-                //alert(x);
-                //console.log(response);
-                console.log(response);
-                console.log(x);
-                if (x == 'success') {
-                     $('.msg').html('<div class="alert offset-md-2 col-6 msg alert-success text-primary"> Secretary Emdorsement of Withdrawal submitted successfully.</div>');
-                     setTimeout((function(){ window.location = '/Chairman/complete_withdrawals.php'  }), 100); 
-                   
-
-
-                    // location.reload()
+            success: function (response) {
+                // 1 = approved; otherwise the reason it cannot be approved (e.g. the member still owes a loan)
+                if ($.trim(response) == '1') {
+                    alert('Complete withdrawal approved.');
+                    location.reload();
+                } else {
+                    alert(fudServerMessage(response, 'Could not approve the withdrawal. Please try again.'));
                 }
             }, error: function(xhr, status, error) {
                 // Request encountered an error
@@ -565,37 +578,40 @@ $(document).ready(function () {
        // ++++++++++++++++ upload Loans +++++++++++++++++++++++++++++++++++++++++++++++
     $(document).on('click', '#upload_loans_deduction', function (e) {
         e.preventDefault();
-            // Confirm the action with the user
-            if (!confirm('Are you sure you want to Upload the loan deductions?')) {
-                return false; // Exit if not confirmed
-            }
-       //alert(year);
-       $('#msg').html('<h3 id="loading" ><img src="../img/loading.gif" alt=""> <i>Uploading Loan deduction please wait...</i></h3>')
-
         var file_type = $('#loanId').val();
         var file_data = $('#uploadFile').prop('files')[0];
+        if (!file_type || !file_data) {
+            $('#msg').html('<div class="fud-notice mt-3"><i class="mdi mdi-alert-circle"></i><span>Choose the loan type and the CSV file first.</span></div>');
+            return false;
+        }
+        if (!confirm('Upload the loan deductions in ' + file_data.name + '?')) {
+            return false;
+        }
+        var button = $(this).prop('disabled', true);
+        $('#msg').html('<div class="fud-notice info mt-3"><span class="spinner-border spinner-border-sm mr-2"></span><span>Uploading and recording the deductions, please wait...</span></div>');
         var form_data = new FormData();
-        // alert(file_type);
         form_data.append('uploadFile', file_data);
         form_data.append('file_type', file_type);
-        $('#loading').removeAttr('hidden')
-            $.ajax({
-                url: 'uploadLoansDeductionExcel.php',
-                dataType: 'text',  // what to expect back from the PHP script, if anything
-                cache: false,
-                contentType: false,
-                processData: false,
-                data: form_data,
-                type: 'post',
-                success: function (msg) {
-                     //alert(msg)
-                    e.preventDefault();
-                    // display response from the PHP script, if any
-                    $('#msg').html(msg)
-                    return false;
-                }
-            });//end ajax
-
+        $.ajax({
+            url: 'uploadLoansDeductionExcel.php',
+            dataType: 'text',
+            cache: false,
+            contentType: false,
+            processData: false,
+            data: form_data,
+            type: 'post',
+            success: function (msg) {
+                $('#msg').html(msg); // row-by-row results (uploadLoansDeductionExcel.php)
+            },
+            error: function () {
+                $('#msg').html('<div class="fud-notice mt-3"><i class="mdi mdi-alert-circle"></i><span>Network or server error. Nothing may have been recorded; check Loan Deductions before uploading again.</span></div>');
+            },
+            complete: function () {
+                button.prop('disabled', false);
+                $('#uploadFile').val('');
+                $('#uploadFileName').text('Choose a .csv file (up to 500KB)');
+            }
+        });
     });
     
     
@@ -693,7 +709,7 @@ $(document).on('submit', '#endorseForm', function(e){
 
     // Perform the AJAX request
     $.ajax({
-        url: "../ajax/endorsement.php", // The URL to send the form data to
+        url: fudBase + "ajax/endorsement.php", // The URL to send the form data to
         data: data, // The serialized form data
         type: "POST", // The HTTP method to use
         success: function(msg){
@@ -721,20 +737,20 @@ $(document).on('submit', '.undertaking-form', function(e){
         var data = $(this).serialize() + '&decision=' + decision; // Serialize the form data
 
     // Display a loading message
-    $('.msg').html('<div class="alert offset-md-4 col-4 alert-primary"><i> Saving please wait...</i></div>');
+    fudMessage('primary', 'Saving, please wait...');
 
     // Perform the AJAX request
     $.ajax({
-        url: "../ajax/undertaking.php", // The URL to send the form data to
+        url: fudBase + "ajax/undertaking.php", // The URL to send the form data to
         data: data, // The serialized form data
         type: "POST", // The HTTP method to use
         success: function(msg){
             // Handle the response from the server
             if (msg == 1) {
                 // Success message
-                $('.msg').html('<div class="alert offset-md-2 col-6 msg alert-success text-primary">Your decision as guarantor has been saved.</div>');
-                // Redirect after a short delay
-                setTimeout(function(){ window.location = 'index.php'; }, 100);
+                fudMessage('success', 'Your decision as guarantor has been saved.');
+                // Back to the guarantee list after a short delay
+                setTimeout(function(){ window.location = 'guarantee.php'; }, 1200);
             } else {
                 // Error message
                 fudShowError(msg, 'Error! Cannot save the undertaking. Contact system admin.');
@@ -774,7 +790,7 @@ $(document).on('submit', '.membership-decision-form', function(e){
 
     // Perform the AJAX request
     $.ajax({
-        url: "../ajax/secretary_member_endorse.php", // The URL to send the form data to
+        url: fudBase + "ajax/secretary_member_endorse.php", // The URL to send the form data to
         data: data, // The serialized form data
         type: "POST", // The HTTP method to use
         success: function(msg){
@@ -841,7 +857,7 @@ $(document).on('submit', '.sav-withdrawal-decision-form', function(e){
 
     // Perform the AJAX request
     $.ajax({
-        url: "../ajax/secretary_withdrawal_endorsement.php", // The URL to send the form data to
+        url: fudBase + "ajax/secretary_withdrawal_endorsement.php", // The URL to send the form data to
         data: data, // The serialized form data
         type: "POST", // The HTTP method to use
         success: function(msg){
@@ -854,7 +870,7 @@ $(document).on('submit', '.sav-withdrawal-decision-form', function(e){
                 setTimeout(function(){ window.location = '/Treasurer/withdrawal_endorsement.php'; }, 2000);
             } else {
                 // Error message
-                $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary">Error! Cannot save Member Saving Withdarwal Decision. Contact system admin.</div>');
+                fudShowError(msg, 'Error! Cannot save Member Saving Withdarwal Decision. Contact system admin.');
             }
         }
     });
@@ -905,7 +921,7 @@ $(document).on('submit', '.com-withdrawal-decision-form', function(e){
 
     // Perform the AJAX request
     $.ajax({
-        url: "../ajax/secretary_withdrawal_endorsement.php", // The URL to send the form data to
+        url: fudBase + "ajax/secretary_withdrawal_endorsement.php", // The URL to send the form data to
         data: data, // The serialized form data
         type: "POST", // The HTTP method to use
         success: function(msg){
@@ -918,7 +934,7 @@ $(document).on('submit', '.com-withdrawal-decision-form', function(e){
                 setTimeout(function(){ window.location = '/Treasurer/complete_withdrawals.php'; }, 2000);
             } else {
                 // Error message
-                $('.msg').html('<div class="alert msg offset-md-2 col-6 alert-danger text-primary">Error! Cannot save Member Saving Withdarwal Decision. Contact system admin.</div>');
+                fudShowError(msg, 'Error! Cannot save Member Saving Withdarwal Decision. Contact system admin.');
             }
         }
     });
@@ -960,7 +976,7 @@ $(document).on('submit', '.loan-decision-form', function(e){
 
     // Perform the AJAX request
     $.ajax({
-        url: "../ajax/process_loan_decision.php", // The URL to send the form data to
+        url: fudBase + "ajax/process_loan_decision.php", // The URL to send the form data to
         data: data, // The serialized form data
         type: "POST", // The HTTP method to use
         success: function(msg){
@@ -1016,7 +1032,7 @@ $(document).on('submit', '.share-decision-form', function(e){
 
     // Perform the AJAX request
     $.ajax({
-        url: "../ajax/process_share_decision.php", // The URL to send the form data to
+        url: fudBase + "ajax/process_share_decision.php", // The URL to send the form data to
         data: data, // The serialized form data
         type: "POST", // The HTTP method to use
         success: function(msg){
@@ -1072,7 +1088,7 @@ $(document).on('submit', '.share-transfer-decision-form', function(e){
 
     // Perform the AJAX request
     $.ajax({
-        url: "../ajax/process_share_transfer_decision.php", // The URL to send the form data to
+        url: fudBase + "ajax/process_share_transfer_decision.php", // The URL to send the form data to
         data: data, // The serialized form data
         type: "POST", // The HTTP method to use
         success: function(msg){
@@ -1116,7 +1132,7 @@ $(document).on('submit', '.share-conversion-decision-form', function(e) {
     $('.msg').html('<div class="alert offset-md-4 col-4 alert-primary"><i>Saving, please wait...</i></div>');
 
     $.ajax({
-        url: "../ajax/process_share_conversion_decision.php",
+        url: fudBase + "ajax/process_share_conversion_decision.php",
         type: "POST",
         data: data,
         success: function(msg) {
@@ -1180,7 +1196,7 @@ $(document).on('submit', '#commodity_request', function(e) {
   $('.msg').html('<div class="alert offset-md-4 col-4 alert-primary"><i>Saving, please wait...</i></div>');
 
   $.ajax({
-    url: "../ajax/commodity_request.php", // The URL to send the form data to
+    url: fudBase + "ajax/commodity_request.php", // The URL to send the form data to
     type: 'POST',
     data: data,
     success: function(response) {
@@ -1224,7 +1240,7 @@ $(document).on('submit', '#commodity_request', function(e) {
 
     // Perform the AJAX request
     $.ajax({
-        url: "../ajax/unlock_loan_decision.php", // The URL to send the data to
+        url: fudBase + "ajax/unlock_loan_decision.php", // The URL to send the data to
         data: data, // The data to send
         type: "POST", // The HTTP method to use
         success: function(msg) {
@@ -1266,7 +1282,7 @@ $(document).on('submit', '#commodity_request', function(e) {
             fudMessage('primary', 'Sending your request, please wait...');
 
             $.ajax({
-                url: "../../ajax/savingswithdrawal.php",
+                url: fudBase + "ajax/savingswithdrawal.php",
                 data: data,
                 type: "POST",
                 success: function (msg) {
@@ -1308,7 +1324,7 @@ $(document).on('submit', '#commodity_request', function(e) {
     
         if (confirm('Are you sure you want to reset this password?') == true) {
             $.ajax({
-                url: '../ajax/reset.php',
+                url: fudBase + 'ajax/reset.php',
                 data: formdata,
                 type: 'post',
                 success: function (msg) {
@@ -1316,10 +1332,12 @@ $(document).on('submit', '#commodity_request', function(e) {
                         $('#msg').html('<br><div class="alert alert-success"><h6 class="text-center"><i>Password successfully changed.</i></h6></div>');
                     } else if (msg == 0) {
                         $('#msg').html('<br><div class="alert alert-danger"><h6 class="text-center"><i>Username does not exist.</i></h6></div>');
+                    } else if (msg == -2) {
+                        $('#msg').html('<br><div class="alert alert-warning"><h6 class="text-center"><i>This is an officer account; it cannot be reset here.</i></h6></div>');
                     } else if (msg == -1) {
                         $('#msg').html('<br><div class="alert alert-danger"><h6 class="text-center"><i>Error! Cannot reset password, contact system admin</i></h6></div>');
                     } else {
-                        alert('Error, contact system admin');
+                        alert(fudServerMessage(msg, 'Error, contact system admin'));
                     }
                 }
             }); // end ajax
@@ -1340,7 +1358,7 @@ $(document).on('submit', '#commodity_request', function(e) {
         }
         fudMessage('primary', 'Sending your request, please wait...');
         $.ajax({
-            url: "../../ajax/update_savings_amount.php",
+            url: fudBase + "ajax/update_savings_amount.php",
             data: data,
             type: "POST",
             success: function(msg){
@@ -1376,7 +1394,7 @@ $(document).on('submit', '#commodity_request', function(e) {
     //     //     return
     //     // }
     //     $.ajax({
-    //         url: "../../ajax/approved_update_savings.php",
+    //         url: fudBase + "ajax/approved_update_savings.php",
     //         data: data,
     //         type: "POST",
     //         // cache:false, 
@@ -1414,7 +1432,7 @@ $(document).on('submit', '#commodity_request', function(e) {
             return
         }
         $.ajax({
-            url: "../../ajax/update_savings_amount.php",
+            url: fudBase + "ajax/update_savings_amount.php",
             data: data,
             type: "POST",
             // cache:false,
@@ -1447,7 +1465,7 @@ $(document).on('submit', '#commodity_request', function(e) {
         }
         fudMessage('primary', 'Sending your request, please wait...');
         $.ajax({
-            url: "../../ajax/complete_withdrawal.php",
+            url: fudBase + "ajax/complete_withdrawal.php",
             data: data,
             type: "POST",
             success: function(msg){
@@ -1479,7 +1497,7 @@ $(document).on('submit', '#commodity_request', function(e) {
             return
         }
         $.ajax({
-            url: "../../ajax/adduser.php",
+            url: fudBase + "ajax/adduser.php",
             data: data,
             type: "POST",
             // cache:false,
@@ -1520,7 +1538,7 @@ $(document).on('submit', '#commodity_request', function(e) {
         }
         $('.msg').html('<div class="alert alert-primary"><i> Applying please wait...</i></div>')
         $.ajax({
-            url: "../../ajax/business_loan.php",
+            url: fudBase + "ajax/business_loan.php",
             data: data,
             type: "POST",
             // cache:false,
@@ -1579,7 +1597,7 @@ $(document).on('submit', '#commodity_request', function(e) {
 
     // The server replies with JSON: {"status": 1 or -1, "message": "..."}
     $.ajax({
-        url: "../../ajax/targetsavingsrequest.php",
+        url: fudBase + "ajax/targetsavingsrequest.php",
         data: data,
         type: "POST",
         success: function(msg) {
@@ -1616,7 +1634,7 @@ $(document).on('submit', '#commodity_request', function(e) {
 
         typingTimer = setTimeout(function() {
             $.ajax({
-                url: "../../ajax/getTotal_share.php",
+                url: fudBase + "ajax/getTotal_share.php",
                 type: "POST",
                 dataType: "json",
                 cache: false,
@@ -1643,7 +1661,7 @@ $(document).on('submit', '#commodity_request', function(e) {
             e.preventDefault();
             $(".amount_msg").text("Calculating Loan repayment amount...");
               $.ajax({
-                  url: "../../ajax/getLoanRepaymentAmount.php",
+                  url: fudBase + "ajax/getLoanRepaymentAmount.php",
                   data: {amount,tenor},
                   type: "POST",  
                   cache:false,
@@ -1680,7 +1698,7 @@ $(document).on('submit', '#commodity_request', function(e) {
                  $('.guarantor').html('<div class="alert offset-md-4 col-4 alert-primary"><i> Verifying, please wait...</i></div>');
         
                     $.ajax({
-                        url: "../../ajax/verify_guarantor.php",
+                        url: fudBase + "ajax/verify_guarantor.php",
                         type: "POST",
                         data: { "guarantor": guarantor }, // Ensure key matches PHP script's expected key
                         dataType: "json", // Expect JSON response
@@ -1727,7 +1745,7 @@ $(document).on('submit', '#commodity_request', function(e) {
     
     // Send the AJAX request
     $.ajax({
-        url: "../../ajax/share_purchase.php",
+        url: fudBase + "ajax/share_purchase.php",
         data: data,
         type: "POST",
         success: function(msg) {
@@ -1787,7 +1805,7 @@ $(document).on('submit', '#commodity_request', function(e) {
         $('#verify_buyer').prop('disabled', true);
 
         $.ajax({
-            url: '../ajax/verifyBuyer.php',
+            url: fudBase + 'ajax/verifyBuyer.php',
             data: {'buyer': buyer},
             type: 'post',
             success: function (msg) {
@@ -1818,7 +1836,7 @@ $(document).on('submit', '#commodity_request', function(e) {
     if (worthValue) {
         // Send AJAX request to convert the number to words
         $.ajax({
-            url: '../ajax/convert_to_words.php', // Make sure this file exists and handles conversion
+            url: fudBase + 'ajax/convert_to_words.php', // Make sure this file exists and handles conversion
             type: 'post',
             data: {'worth': worthValue},
             beforeSend: function () {
@@ -1847,7 +1865,7 @@ $(document).on('submit', '#commodity_request', function(e) {
     if (worthValue) {
         // Send AJAX request to convert the number to words
         $.ajax({
-            url: '../ajax/convert_shares_to_words.php', // Make sure this file exists and handles conversion
+            url: fudBase + 'ajax/convert_shares_to_words.php', // Make sure this file exists and handles conversion
             type: 'post',
             data: {'share_amount': worthValue},
             beforeSend: function () {
@@ -1874,7 +1892,7 @@ $(document).on('submit', '#commodity_request', function(e) {
         var amount_paid = $(this).val();
     
         $.ajax({
-            url: '../ajax/check_amount.php',
+            url: fudBase + 'ajax/check_amount.php',
             data: {'amount_paid': amount_paid},
             type: 'post',
             success: function (msg) {
@@ -1912,7 +1930,7 @@ $(document).on('submit', '#commodity_request', function(e) {
     if (worthValue) {
         // Send AJAX request to convert the number to words
         $.ajax({
-            url: '../ajax/convert_shares_conversion_to_words.php', // Make sure this file exists and handles conversion
+            url: fudBase + 'ajax/convert_shares_conversion_to_words.php', // Make sure this file exists and handles conversion
             type: 'post',
             data: {'amount_paid': worthValue},
             beforeSend: function () {
@@ -1942,7 +1960,7 @@ $(document).on('submit', '#commodity_request', function(e) {
         var worth = $(this).val();
     
         $.ajax({
-            url: '../ajax/check_worth.php',
+            url: fudBase + 'ajax/check_worth.php',
             data: {'worth': worth},
             type: 'post',
             success: function (msg) {
@@ -1993,7 +2011,7 @@ $(document).on('submit', '#commodity_request', function(e) {
     }
 
             $.ajax({
-                url: '../ajax/share_transfer.php',
+                url: fudBase + 'ajax/share_transfer.php',
                 data: {'worth':worth,'amount_word':amount_word,'sp_no':sp_no},
                 type: 'post',
                 success: function (msg) {
@@ -2034,7 +2052,7 @@ $(document).on('submit', '#commodity_request', function(e) {
     }
 
             $.ajax({
-                url: '../ajax/share_pending_transfer.php',
+                url: fudBase + 'ajax/share_pending_transfer.php',
                 data: {'worth':worth,'amount_word':amount_word,'sp_no':sp_no},
                 type: 'post',
                 success: function (msg) {
@@ -2068,7 +2086,7 @@ $(document).on('submit', '#commodity_request', function(e) {
         }
 
             $.ajax({
-                url: '../ajax/accept_transfer_share.php',
+                url: fudBase + 'ajax/accept_transfer_share.php',
                 data:{transfer_id: transferId}, // Pass the transfer ID
                 type: 'post',
                 success: function (msg) {
@@ -2105,7 +2123,7 @@ $(document).on('submit', '#commodity_request', function(e) {
     }
 
             $.ajax({
-                url: '../ajax/share_pending_conversion.php',
+                url: fudBase + 'ajax/share_pending_conversion.php',
                 data: {'amount_paid':amount_paid,'amount_word':amount_word,'staff_no':staff_no},
                 type: 'post',
                 success: function (msg) {
@@ -2131,7 +2149,7 @@ $(document).on('submit', '#commodity_request', function(e) {
         var withdrawal_amount = $(this).val();
     
         $.ajax({
-            url: '../../ajax/check_withdrawal_amount.php',
+            url: fudBase + 'ajax/check_withdrawal_amount.php',
             data: {'withdrawal_amount': withdrawal_amount},
             type: 'post',
             success: function (msg) {
@@ -2180,7 +2198,7 @@ $(document).on('submit', '#commodity_request', function(e) {
         // alert(data)
         $('.msg').html('<div class="alert offset-md-4 col-4  alert-primary"><i> Saving please wait...</i></div>')
         $.ajax({
-            url: "../ajax/update_bio.php",
+            url: fudBase + "ajax/update_bio.php",
             data: data,
             type: "POST",
             // cache:false,
@@ -2215,7 +2233,7 @@ $(document).on('submit', '#commodity_request', function(e) {
     );
 
     $.ajax({
-        url: "../ajax/update_admin_bio.php",
+        url: fudBase + "ajax/update_admin_bio.php",
         type: "POST",
         data: data,
         success: function (msg) {
@@ -2248,7 +2266,7 @@ $(document).on('submit', '#commodity_request', function(e) {
         $('.msg').html('<div class="alert offset-md-4 col-4  alert-primary"><i> Saving...</i></div>');
         // alert(data)
         $.ajax({
-            url: "ajax/update_contact.php",
+            url: fudBase + "ajax/update_contact.php",
             data: data,
             type: "POST",
             cache:false,
@@ -2277,7 +2295,7 @@ $(document).on('submit', '#commodity_request', function(e) {
         alert(data)
         $('.msg'+sitting).html('<div class="alert offset-md-4 col-4  alert-primary"><i> Saving...</i></div>')
         $.ajax({
-            url: "ajax/update_olevel.php",
+            url: fudBase + "ajax/update_olevel.php",
             data: data,
             type: "POST",
             cache:false,
@@ -2302,7 +2320,7 @@ $(document).on('submit', '#commodity_request', function(e) {
         $('.msg').html('<div class="alert offset-md-4 col-4  alert-primary"><i> Saving...</i></div>');
         // alert(data)
         $.ajax({
-            url: "ajax/update_alevel.php",
+            url: fudBase + "ajax/update_alevel.php",
             data: data,
             type: "POST",
             cache:false,
@@ -2336,7 +2354,7 @@ $(document).on('submit', '#commodity_request', function(e) {
         form_data.append('spno', spno);
         alert(spno)
             $.ajax({
-                url: "ajax/upload_passport.php",
+                url: fudBase + "ajax/upload_passport.php",
                 dataType: 'text',  // what to expect back from the PHP script, if anything
                 cache: false,
                 contentType: false,
@@ -2432,7 +2450,7 @@ $(document).on('submit', '#commodity_request', function(e) {
         form_data.append('type', type);
         //alert(jamb)
             $.ajax({
-                url: "ajax/upload_doc.php",
+                url: fudBase + "ajax/upload_doc.php",
                 dataType: 'text',  // what to expect back from the PHP script, if anything
                 cache: false,
                 contentType: false,
@@ -2523,7 +2541,7 @@ $('#item-form').on('submit', function(e) {
     var formData = $(this).serialize() + "&action=create_item";
 
     $.ajax({
-        url: "../../ajax/commodity_ajax.php",
+        url: fudBase + "ajax/commodity_ajax.php",
         method: "POST",
         data: formData,
         success: function(response) {
@@ -2559,7 +2577,7 @@ $(document).on("click", ".update-item", function(e) {
     //console.log(item_id, name, type_id, description, unit, is_active);
 
     $.ajax({
-        url: "ajax/commodity_ajax.php",
+        url: fudBase + "ajax/commodity_ajax.php",
         method: "POST",
         data: {
             "action": "update_item",
@@ -2595,7 +2613,7 @@ $(document).on("click", ".delete-item", function(e) {
 
     if (confirm("Are you sure you want to delete this item?")) {
         $.ajax({
-            url: "ajax/commodity_ajax.php",
+            url: fudBase + "ajax/commodity_ajax.php",
             method: "POST",
             data: {"action": "delete_item", "item_id": item_id},
             success: function(response, x) {
@@ -2620,7 +2638,7 @@ $(document).on("click", ".edit-item", function(e) {
     //console.log(item_id);
 
     $.ajax({
-        url: "ajax/commodity_ajax.php",
+        url: fudBase + "ajax/commodity_ajax.php",
         method: "POST",
         data: {"action": "get_item", "item_id": item_id},
         success: function(response, x) {
@@ -2666,7 +2684,7 @@ $(document).on("click", "#add-item-btn", function(e) {
     
     // // Load types for dropdown
     // $.ajax({
-    //     url: "ajax/commodity_ajax.php",
+    //     url: fudBase + "ajax/commodity_ajax.php",
     //     method: "POST",
     //     data: {"action": "get_types"},
     //     success: function(response, x) {
@@ -2688,77 +2706,6 @@ $(document).on("click", "#add-item-btn", function(e) {
     // });
 
 
-    // Schedule Commodity for All Staff
-
-$(document).on('submit', '#schedule-all', function (e) {
-        e.preventDefault();
-        var formdata = $(this).serialize();
-    //   var session = $('#session').val();
-    //   var semester = $('#semester').val();
-    //   var program = $('#program').val();
-    //   var level = $('#level').val();
-    //   var id = $('#sp').val();
-    //   alert(formdata);
-
-      if (confirm('Are you sure you want to save this schedule for all?') ==true) {
-        $('#msg-all').html('<h3 id="loading" ><img src="../../img/loading.gif" alt=""> <i>Scheduling please wait...</i></h3>')
-        $.ajax({
-            url: '../../ajax/schedule.php',
-            data: formdata,
-            type: 'post',
-            success: function (msg) {
-            //   alert(msg)
-                if(msg == 1){
-                           $('#msg-all').html('<div class="alert alert-success">Schedule successfully saved.</div>')
-                }
-                else{
-                           $('#msg-all').html('<div class="alert alert-danger">Schedule failed. Please contact admin.</div>')
-                }
-
-            }
-        });//end ajax
-      }
-            
-
-});
-
-     // Schedule Commodity for Individual Staff
-    
-    $(document).on('submit', '#schedule-individual', function (e) {
-        e.preventDefault();
-        var formdata = $(this).serialize();
-    //   var session = $('#session').val();
-    //   var semester = $('#semester').val();
-    //   var program = $('#program').val();
-    //   var level = $('#level').val();
-    //   var id = $('#sp').val();
-    //   alert(formdata);
-
-      if (confirm('Are you sure you want to save this schedule for individual?') ==true) {
-        $('#msg-individual').html('<h3 id="loading" ><img src="../../img/loading.gif" alt=""> <i>Scheduling please wait...</i></h3>')
-        $.ajax({
-            url: '../../ajax/schedule.php',
-            data: formdata,
-            type: 'post',
-            success: function (msg) {
-            //   alert(msg)
-                if(msg == 1){
-                           $('#msg-individual').html('<div class="alert alert-success">Schedule successfully saved.</div>')
-                }
-                else{
-                           $('#msg-individual').html('<div class="alert alert-danger">Schedule failed. Please contact admin.</div>')
-                }
-
-            }
-        });//end ajax
-      }
-            
-
-    });
-
-
- 
- 
   $('#item-type-form').on('submit', function(e) {
     
     e.preventDefault();
@@ -2771,7 +2718,7 @@ $(document).on('submit', '#schedule-all', function (e) {
    
     
     $.ajax({
-        url: "../../ajax/commodity_ajax.php",
+        url: fudBase + "ajax/commodity_ajax.php",
         method: "POST",
         data: formData,
         success: function (response,x) {
@@ -2797,7 +2744,7 @@ $(document).on("click", ".update-item-type", function(e) {
     //console.log(type_id, type_name, description);
 
     $.ajax({
-        url: "ajax/commodity_ajax.php",
+        url: fudBase + "ajax/commodity_ajax.php",
         method: "POST",
         data: {"action":"update_item_type", "type_id":type_id, "type_name":type_name, "description":description},
         success: function (response,x) {
@@ -2825,7 +2772,7 @@ $(document).on("click", ".delete-item-type", function(e) {
 
     if(confirm("Are you sure you want to delete this item type?")) {
         $.ajax({
-            url: "ajax/commodity_ajax.php",
+            url: fudBase + "ajax/commodity_ajax.php",
             method: "POST",
             data: {"action":"delete_item_type", "type_id":type_id},
             success: function (response,x) {
@@ -2852,7 +2799,7 @@ $(document).on("click", ".edit-item-type", function(e) {
     //console.log(type_id);
 
     $.ajax({
-        url: "../../ajax/commodity_ajax.php",
+        url: fudBase + "ajax/commodity_ajax.php",
         method: "POST",
         data: {"action":"get_item_type", "type_id":type_id},
         success: function (response,x) {
@@ -2897,7 +2844,7 @@ $('#commodity-name-form').on('submit', function(e) {
 
     // Send AJAX request
     $.ajax({
-        url: "../../ajax/commodity_ajax.php",
+        url: fudBase + "ajax/commodity_ajax.php",
         method: "POST",
         data: formData,
         dataType: "json", // Expect JSON response
@@ -2967,7 +2914,7 @@ $(document).on("click", ".edit-commodity-name", function () {
 
     // Now perform AJAX to fetch data and populate modal
     $.ajax({
-        url: "../ajax/commodity_ajax.php",
+        url: fudBase + "ajax/commodity_ajax.php",
         method: "POST",
         data: {
             action: "get_commodity_name",
@@ -2999,7 +2946,7 @@ $('#commodity_name_id').on('change', function () {
     const commodityId = $(this).val();
     if (commodityId) {
         $.ajax({
-            url: '../ajax/commodity_ajax.php',
+            url: fudBase + 'ajax/commodity_ajax.php',
             method: 'POST',
             dataType: 'json', // ✅ Important: ensures jQuery parses response
             data: {
@@ -3040,7 +2987,7 @@ $(document).on("click", "#save-commodity-name", function () {
     }
 
     $.ajax({
-        url: "../ajax/commodity_ajax.php",
+        url: fudBase + "ajax/commodity_ajax.php",
         method: "POST",
         data: {
             action: "update_commodity_name",
@@ -3075,7 +3022,7 @@ $(document).on("click", ".delete-commodity-name", function(e) {
 
     if(confirm("Are you sure you want to delete commodity name?")) {
         $.ajax({
-            url: "ajax/commodity_ajax.php",
+            url: fudBase + "ajax/commodity_ajax.php",
             method: "POST",
             data: {"action":"delete_commodity_name", "commodity_name_id":commodity_name_id},
             success: function (response,x) {
@@ -3119,7 +3066,7 @@ function formatCurrency(amount) {
 // For batches.php
 function refreshBatchesTable() {
     $.ajax({
-        url: 'ajax/commodity_ajax.php',
+        url: fudBase + 'ajax/commodity_ajax.php',
         type: 'POST',
         data: { action: 'get_batches' },
         dataType: 'json',
@@ -3182,7 +3129,7 @@ $('#create-batch-form').on('submit', function(e) {
     
     
     $.ajax({
-        url: '../../ajax/commodity_ajax.php',
+        url: fudBase + 'ajax/commodity_ajax.php',
         type: 'POST',
         data: {
             action: 'create_batch',
@@ -3230,7 +3177,7 @@ $('#edit-batch-form').on('submit', function(e) {
     }
     
     $.ajax({
-        url: '../ajax/commodity_ajax.php',
+        url: fudBase + 'ajax/commodity_ajax.php',
         type: 'POST',
         data: {
             action: 'update_batch',
@@ -3282,7 +3229,7 @@ $('#edit-batch-form').on('submit', function(e) {
         form_data.append('session', session);
         alert(session)
             $.ajax({
-                // url: "ajax/upload_passport.php",
+                // url: fudBase + "ajax/upload_passport.php",
                 dataType: 'text',  // what to expect back from the PHP script, if anything
                 cache: false,
                 contentType: false,
@@ -3376,7 +3323,7 @@ $(document).on('submit', '#form-fetch_savings', function(e){
 
     // Perform the AJAX request
     $.ajax({
-        url: "../ajax/fetch_members_savings.php", // The URL to send the form data to
+        url: fudBase + "ajax/fetch_members_savings.php", // The URL to send the form data to
         data: data, // The serialized form data
         type: "POST", // The HTTP method to use
         success: function(msg){
@@ -3417,7 +3364,7 @@ $(document).on('submit', '#form-fetch_savings', function(e){
 
 //     // Perform the AJAX request
 //     $.ajax({
-//         url: '../ajax/fetch_withdrawals_ajax.php',
+//         url: fudBase + 'ajax/fetch_withdrawals_ajax.php',
 //         type: 'POST',
 //          { from: from, to: to },
 //         dataType: 'json',
@@ -3453,7 +3400,7 @@ $(document).on('submit', '#form-fetch_savings', function(e){
             
             // AJAX request to get batches for selected supply
             $.ajax({
-                url: '../ajax/commodity_management.php',
+                url: fudBase + 'ajax/commodity_management.php',
                 type: 'POST',
                 dataType: 'json',
                 data: { 
@@ -3527,7 +3474,7 @@ $(document).on('submit', '#form-fetch_savings', function(e){
             
             // AJAX request to get batches for selected supply
             $.ajax({
-                url: '../ajax/commodity_management.php',
+                url: fudBase + 'ajax/commodity_management.php',
                 type: 'GET',
                 dataType: 'json',
                 data: { 
@@ -3783,7 +3730,7 @@ $(document).on('submit', '#form-fetch_savings', function(e){
         }
 
         $.ajax({
-            url: '../ajax/bulk_approve_withdrawal.php',
+            url: fudBase + 'ajax/bulk_approve_withdrawal.php',
             type: 'POST',
             data: { withdrawal_ids: selectedIds, action: 'approve' },
             dataType: 'json',

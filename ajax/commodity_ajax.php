@@ -1,4 +1,6 @@
 <?php
+// Replies are JSON: PHP warnings go to the error log, not into the reply (they made the page report a failure)
+ini_set('display_errors', '0');
 require_once '../config/classes/DB.php';
     require_once '../config/classes/MemberG1.php';
     require_once '../config/classes/MemberG2.php';
@@ -40,10 +42,10 @@ try {
     $supply_id = $_POST['supply_id'] ?? '';
     $itesms_request = $_POST['data'] ?? '';
     
-    $application_id = (int)$_POST['application_id'] ?? '';
+    $application_id = (int) ($_POST['application_id'] ?? 0);
     $decision = $_POST['decision'] ?? '';
     $approved_quantities = $_POST['approved_quantities'] ?? [];
-    $approved_total = (float)$_POST['approved_total']  ?? '';
+    $approved_total = (float) ($_POST['approved_total'] ?? 0);
     $admin_comments = trim($_POST['admin_comments'] ?? '');
     
     $disbursed_quantities = isset($_POST['disbursed_quantities']) && is_array($_POST['disbursed_quantities']) ? $_POST['disbursed_quantities'] : [];

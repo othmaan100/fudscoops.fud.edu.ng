@@ -473,3 +473,78 @@
 .fud-commodity h3 .fud-pill { vertical-align: middle; font-size: 0.72rem; }
 .fud-qty { width: 90px; margin-left: auto; text-align: right; }
 .fud-decisions .fud-wide { grid-column: 1 / -1; text-align: left; font-weight: 400; font-style: italic; color: var(--fud-muted); margin-top: -0.35rem; }
+
+/* ---------- Guarantees (R/guarantee.php, R/undertaking.php) ---------- */
+.fud-details th { width: 40%; font-weight: 600; color: var(--fud-muted); font-size: 0.78rem; text-transform: none; letter-spacing: 0; }
+.fud-details td { color: var(--fud-text); }
+.fud-undertaking h3 { font-size: 1.3rem; font-weight: 600; }
+.fud-undertaking h3 .fud-pill { vertical-align: middle; font-size: 0.72rem; }
+.fud-undertaking-text {
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+  border-left: 3px solid #4d83ff;
+  border-radius: 8px;
+  background: #f4f7fc;
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+.fud-guarantee-list { display: grid; gap: 0.75rem; }
+.fud-guarantee-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--fud-border);
+  border-left: 4px solid #f59f00;
+  border-radius: 12px;
+}
+.fud-guarantee-who { flex: 1 1 200px; }
+.fud-guarantee-loan { flex: 2 1 260px; font-size: 0.9rem; }
+.fud-details tr:first-child th, .fud-details tr:first-child td { border-top: 0; }
+
+/* ---------- My Loans (R/view_loan_approval.php) ---------- */
+.fud-loan-card .fud-section-head h5 .text-muted { font-size: 0.85rem; }
+.fud-bar { height: 8px; border-radius: 999px; background: #eef1f6; overflow: hidden; }
+.fud-bar > div { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #22a86a, #4fc98d); }
+
+/* ---------- Officers' loans page (config/loans/officer_loans.php) ---------- */
+a.fud-stat-link { color: inherit; text-decoration: none; }
+a.fud-stat-link:hover { color: inherit; text-decoration: none; border-color: #4d83ff; }
+.fud-search { max-width: 340px; margin-bottom: 0.5rem; border-radius: 8px; }
+#loanList th, #loanList td { white-space: nowrap; }
+#loanList td.fud-wrap { white-space: normal; min-width: 180px; }
+
+/* ---------- Upload pages (Treasurer/batch_loan_deduction.php) ---------- */
+.fud-file {
+  display: flex !important;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem;
+  border: 2px dashed var(--fud-border);
+  border-radius: 12px;
+  background: #fafbfe;
+  cursor: pointer;
+  font-weight: 400 !important;
+  color: var(--fud-muted) !important;
+}
+.fud-file:hover { border-color: #4d83ff; background: #f4f7ff; }
+.fud-file .mdi { font-size: 1.6rem; color: #3b6fe8; }
+.fud-file input[type=file] { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.fud-howto { padding-left: 1.1rem; font-size: 0.86rem; color: var(--fud-text); }
+.fud-howto li { margin-bottom: 0.5rem; }
+.fud-upload-result .fud-row-problem td { background: #fff7f8; }
+#uploadRows th, #uploadRows td { white-space: nowrap; }
+#uploadRows td:nth-child(2) { white-space: normal; min-width: 180px; }
+
+/* ---------- Commodity supplies (Secretary/add_commodity_name.php) ---------- */
+.fud-supply-list { display: grid; gap: 0.75rem; }
+.fud-supply { padding: 0.9rem 1rem; border: 1px solid var(--fud-border); border-left: 4px solid #c9d1e0; border-radius: 12px; }
+.fud-supply.open { border-left-color: #22a86a; background: #f6fcf9; }
+.fud-supply.upcoming { border-left-color: #f59f00; }
+.fud-supply-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.25rem; }
+.fud-inline { width: 110px; margin-left: auto; text-align: right; }
+.fud-apply .select2-container .select2-selection--single { height: 46px; border: 1px solid #dee2e6; border-radius: 8px; }
+.fud-apply .select2-container .select2-selection--single .select2-selection__rendered { line-height: 44px; padding-left: 14px; }
+.fud-apply .select2-container .select2-selection--single .select2-selection__arrow { height: 44px; }
+.fud-code { padding: 0.2rem 0.5rem; border-radius: 6px; background: #eef4ff; color: #2a4fa8; font-size: 0.95rem; }

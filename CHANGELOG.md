@@ -20,6 +20,10 @@ at the top.
 | 3 | `db/2026-10-08_loans_shares.sql` | Adds `entry_type` and `reference_id` columns to `fudscoops_shares` (shares become a ledger; existing rows become `'purchase'`). Adds settings `loan_max_savings_multiple` (2), `guarantor_max_open_loans` (2), `share_min_balance_after_transfer` (20000). Marks two empty records deleted (`fudscoops_shares_transfer` 2, `fudscoops_shares_conversion` 1). Run after #1 and BEFORE uploading the code from 2026-10-08 (the current code is unaffected by the new columns). | Applied 2026-10-08 | Pending |
 | 4 | `db/2026-10-13_loan_workflow.sql` | Loan workflow reform. Backs up `fudscoops_loan` to `fudscoops_loan_backup_20261013`. Adds loan columns `interest_rate`, `interest_amount`, `total_payable`, `treasurer_comment`, `treasurer_date`, `disbursed_amount`, `disbursement_date`, `disbursement_reference`, `disbursed_by`, `repayment_start`, `repaid_date`; adds `fudscoops_suppliers.sort_code`; adds setting `loan_interest_rate` (10). Existing `'Approve'`/`'Approved'` loans become `'Disbursed'` with no interest (total = approved amount, paid out on the loan date, deductions from that month); loans already repaid in full become `'Repaid'`; pending loans the Chairman had decided are returned to the new flow (approved → undecided; declined → `'Disapprove'`). Undo statements are in the file. Run after #3 and BEFORE uploading the code from 2026-10-13. | Applied 2026-10-13 (155 loans → Disbursed) | Pending |
 | 5 | `db/2026-10-13_commodity_workflow.sql` | Commodity workflow. Backs up the applications, application items and supply items tables (`*_backup_20261013`). Status becomes free text; adds application columns for months, Treasurer and Chairman decisions, interest, total, monthly amount, supply and repayment; new table `fudscoops_commodity_repayments`; setting `commodity_max_tenor` (6). The 6 existing requests (none ever supplied) go to the Treasurer at their requested value; supply items with no stock that nobody requested get their full allocation. Undo statements are in the file. Run after #4 and BEFORE uploading the code from 2026-10-13. | Applied 2026-10-13 (6 requests → pending) | Pending |
+| 6 | `db/2026-10-14_loan_limit_3x.sql` | Sets `loan_max_savings_multiple` to 3: open loans plus a new loan may not exceed 3 times the savings balance (was 2). Safe to run before or after the code. Undo statement is in the file. | Applied 2026-10-14 | Pending |
+| 7 | `db/2026-10-14_loan_controls.sql` | Adds `fudscoops_loan.guarantor_comment`; new table `fudscoops_loan_overpayments`; adds `settle_from_savings`, `amount_owed`, `settled_at` to `fudscoops_complete_withrawal`; setting `soft_loan_open` = 0. No changes to existing records. Undo statements are in the file. Run after #5 and BEFORE uploading the code from 2026-10-14. | Applied 2026-10-14 | Pending |
+| 8 | `db/2026-10-14_kobo_and_withdrawals.sql` | Money columns become DECIMAL(14,2) so amounts keep kobo (savings, monthly savings, savings updates, withdrawals, complete withdrawals, loans, repayments, shares, share unit, commodity prices). Old repayment schedule amounts with long decimals are rounded to kobo (backup `fudscoops_loan_repayments_backup_20261014`). Adds setting `withdrawal_min_balance` (starts at `min_monthly_savings`). Run after #7 and BEFORE uploading the code. | Applied 2026-10-14 | Pending |
+| 9 | `db/2026-10-15_withdrawal_decisions.sql` | Savings withdrawals: adds `treasurer_comment`, `treasurer_decided_by`, `treasurer_decided_at`; status -1 = rejected by the Treasurer. Moves requests the Treasurer had approved but that never reached the Chairman (status 0 with an amount) to status 1. Backup `fudscoops_withrawals_backup_20261015`; undo statements in the file. Run after #8 and BEFORE uploading the code. | Applied 2026-10-15 (12 requests moved on) | Pending |
 
 ### Meaning of the approval columns (as of 2026-10-06)
 
@@ -67,6 +71,540 @@ total ÷ months, dated `repayment_start`), 1 = deduction received (`amount_paid`
 `fudscoops_shares_transfer` (`share_transfer_status`, `secretary_endorsement`, `chairman_approval`)
 and `fudscoops_shares_conversion` (`conversion_status`, `chairman_approval`): 0 pending/undecided,
 1 approved/done, -1 declined.
+
+---
+
+## 2026-10-15
+
+### Savings withdrawal request page redesigned; Reject works; approved requests reach the Chairman
+
+Run `db/2026-10-15_withdrawal_decisions.sql` (#9) on the live database **before** uploading this code.
+
+**Treasurer/view_withdrawal_details.php:**
+- **Header:** request number and stage (Awaiting Treasurer, Awaiting Chairman, Approved, Rejected).
+- **Figures:** amount requested (and approved), savings balance and monthly savings, and the most that
+  can be withdrawn after the minimum balance. A warning shows when the request is above that.
+- **Member:** details, with the last three months' payslips, and the account to pay into.
+- **Recent savings and withdrawals** from the member's statement.
+- **Decision panel:**
+  - the amount to approve (up to the maximum) and a comment;
+  - **Approve and send to Chairman**;
+  - **Reject request**, which needs a reason the member sees;
+  - the amount can be changed until the Chairman decides; afterwards the decision is shown.
+
+**Fixes:**
+- **Reject did nothing:** it sent the same request as Approve, so it either failed ("Enter the approved
+  amount") or, with an amount typed, approved it. Comments were never saved.
+- **Approvals never reached the Chairman:** the Treasurer's approval saved the amount but left the
+  status at 0, while the Chairman's list shows only status 1. 12 requests were waiting unseen; the
+  migration moves them on.
+- **Rejected requests:** no longer count as pending, so the member can request again. They see the
+  rejection and reason on their dashboard and on Withdraw Savings.
+- **No login check:** `ajax/secretary_withdrawal_endorsement.php` had none; it now requires an officer.
+
+| File | Change |
+|---|---|
+| `db/2026-10-15_withdrawal_decisions.sql` | **New** – database changes (#9 above) |
+| `Treasurer/view_withdrawal_details.php` | Redesigned |
+| `ajax/withdrawal_decision.php` | **New** – Treasurer approve or reject |
+| `config/classes/MemberG1.php` | Approval sets status 1 and records the decision; new `treasurerRejectWithdrawal()` |
+| `config/classes/Dashboard.php` | Rejected requests not pending; new `recentWithdrawalRejections()` |
+| `config/classes/Report.php` | Pending withdrawals exclude rejected ones |
+| `R/index.php`, `R/savings/savings_withdrawal.php` | Rejection notice with the reason |
+| `ajax/secretary_withdrawal_endorsement.php` | Officers only |
+
+### Members' Savings History page; overpayment to savings made clear
+
+- **New Savings History** (`R/savings/savings_history.php`, member menu → Savings → Savings History; the
+  dashboard's Savings Balance figure also opens it):
+  - savings balance, total saved (and this year) and total withdrawn;
+  - a statement of every monthly saving, withdrawal and complete withdrawal (including loans or
+    commodity paid from savings), newest first, with the balance after each line;
+  - filters by year and by savings or withdrawals, and a CSV download;
+  - a **Pending** box for amounts not yet in the balance: withdrawals awaiting approval, and overpayments
+    the member chose to add to savings that the Treasurer has not yet settled.
+  - The statement's balance matches the balance used everywhere else (checked for all 1,308 members).
+  - Overpayments added to savings are labelled "Loan overpayment added to savings (loan #…)".
+- **Loan Overpayments** (`R/overpayment.php`): after the member chooses, the page says it is waiting for the
+  Treasurer to add the amount to their savings (or pay the loan, or refund), and where it will show. The
+  money moves only when the Treasurer settles it on Treasurer → Loan Overpayments; this is unchanged.
+
+| File | Change |
+|---|---|
+| `R/savings/savings_history.php` | **New** |
+| `config/classes/Dashboard.php` | New `memberStatement()` |
+| `R/overpayment.php` | Clearer waiting message |
+| `R/index.php` | Savings Balance figure links to Savings History |
+| `config/classes/View.php` | Member menu: Savings History |
+
+### Treasurer can reset members' passwords; password reset secured
+
+- **New Password Reset page** (`Treasurer/password.php`, Treasurer menu → Settings):
+  - enter a staff number and **Find** to see the name, department and account type;
+  - **Reset password to staff number**; the page then shows the new password to give the member;
+  - a short guide (log in with the staff number, change it at once, confirm who is asking).
+- **Security fixes:**
+  - `ajax/reset.php` had no login check: anyone, even logged out, could reset any account's password
+    (including officers') to the staff number and log in as them. It now accepts only the Secretary,
+    Treasurer and Chairman.
+  - Only member and applicant accounts can be reset. Officer accounts are refused on all three pages.
+  - `Secretary/password.php` only redirected when the user was not the Secretary and still ran the reset;
+    it now stops. Its reset uses the same safe method (`MemberG2::resetPasswordByUsername` →
+    `User::resetPassword`).
+- Each reset is written to the PHP error log with who did it.
+
+| File | Change |
+|---|---|
+| `Treasurer/password.php` | **New** |
+| `ajax/reset.php` | Officers only; lookup and reset actions |
+| `config/classes/User.php` | `resetPassword()` members/applicants only; new `passwordResetLookup()` |
+| `config/classes/MemberG2.php` | `resetPasswordByUsername()` uses `User::resetPassword()` |
+| `Secretary/password.php` | Stops when not the Secretary; officer-account message |
+| `js/custom.js` | Chairman reset page: officer-account message |
+| `config/classes/View.php` | Treasurer menu: Password Reset |
+
+### Supply items page: see and update the items already in a supply (Secretary/addCommodityItems.php)
+
+- **Top of the page:** the supply's name, status and dates, with figures for the number of items, the
+  value of all items, and what members have requested.
+- **Items in this supply** (new): each item's unit price, quantity, quantity members have requested,
+  quantity left, and value.
+  - Change the price or quantity in place and **Save**. The quantity cannot go below what members have
+    requested, and what is left moves with it.
+  - Remove an item no member has requested.
+  - An item listed twice is flagged.
+- **Add items:** choose an item and quantity, build a list, then **Save to this supply**. An item already in
+  the supply gets the extra quantity.
+- **Fixes:**
+  - The page had no login check, and an unknown supply number now says so.
+  - It loaded a second copy of jQuery and Bootstrap 5, and table scripts from paths that do not exist.
+
+| File | Change |
+|---|---|
+| `Secretary/addCommodityItems.php` | Rebuilt; items already in the supply can be updated |
+| `config/classes/CommodityLoan.php` | New `supply()`, `supplyItemsList()`, `updateSupplyItem()`, `removeSupplyItem()` |
+| `ajax/commodity_supply.php` | Actions `item_update`, `item_remove` |
+| `css/dashboard.css` | Inline inputs and item picker |
+
+### Adding items to a commodity supply: false error fixed; repeated items merged
+
+Saving items on `Secretary/addCommodityItems.php` showed "Error occurred while saving items" although
+the items were saved.
+
+**Cause:** two lines in `ajax/commodity_ajax.php` read form fields this request does not send
+(`application_id`, `approved_total`). The fallback sat after the type cast, so PHP printed warnings into
+the reply. The reply was then not valid JSON, and the page reported a failure.
+
+**Fixed:**
+- the two lines;
+- `ajax/commodity_ajax.php` no longer prints PHP warnings into its replies (they go to the error log);
+- saving items (`Commodity::saveCommoditySupplyItems`) now:
+  - checks the supply exists;
+  - checks each item exists, with a whole quantity above 0 and a price;
+  - saves all items or none;
+  - adds to the quantity (and sets the new price) when an item is already in the supply, or listed
+    twice, instead of creating a second line members would see;
+  - reports what was added or increased;
+- the page shows that message and offers to go back to Commodity Supplies.
+
+**Data:** BATCH I 2026 (supply 5) also has an old Yam line (row 12, 800 units, created 4 Dec 2025)
+saved for a supply #5 that did not exist then. It now shows alongside the Yam line added on 15 Oct 2026.
+
+| File | Change |
+|---|---|
+| `ajax/commodity_ajax.php` | Two warnings fixed; warnings kept out of replies |
+| `config/classes/Commodity.php` | `saveCommoditySupplyItems()` checks, merges and saves all-or-nothing |
+| `Secretary/addCommodityItems.php` | Shows the server's message |
+
+### Commodity Supplies page (Secretary/add_commodity_name.php) rebuilt
+
+The page that opens a commodity supply to members (menu: **Commodity Supplies**, was "Add Commodity Name"):
+- **Status at the top:** the supply open to members now, until when, how many items and requests it
+  has, and a warning when it has no items (members then cannot request anything). Otherwise, the next
+  supply.
+- **Open a new supply:** name (upper case), and opening and closing **date and time**. A new supply is
+  suggested to start after the last one and run two weeks, with its length shown. After saving, the
+  Secretary goes straight to adding its items.
+- **Checks:**
+  - a name is required and must be new;
+  - the supply must close after it opens, and in the future;
+  - its period may not overlap another supply, because members see only one supply at a time.
+- **All supplies:** status (Open now, Upcoming, Closed), dates, item and request counts, with **Items**,
+  **Dates** (change the opening and closing time; overlaps are refused) and **Close now** (stops new
+  requests; requests already made carry on).
+- **Fixes:**
+  - The page had no login check.
+  - Errors other than "name exists" were never shown.
+  - A closing date was saved as midnight at the start of that day, so a supply closed a day early. A
+    date entered without a time now closes at 23:59:59.
+  - The supply list's old Edit button saved to the wrong table (`fudscoops_commodity_name`), so dates
+    could not be changed; the new Dates button replaces it.
+  - Open/closed status uses the database clock, the same one the member's request page uses.
+
+Existing supplies keep their saved times (most close at 12:00am); the Secretary can correct them with
+Dates.
+
+| File | Change |
+|---|---|
+| `Secretary/add_commodity_name.php` | Rebuilt |
+| `ajax/commodity_supply.php` | **New** – save, change dates, close now (officers only) |
+| `config/classes/CommodityLoan.php` | New `supplies()`, `saveSupply()`, `closeSupplyNow()` |
+| `config/classes/View.php` | Secretary menu: Commodity Supplies |
+| `css/dashboard.css` | Supply list styles |
+
+### Commodity supply: one page opens the request period
+
+**Add Commodity Name** (`Secretary/add_commodity_name.php`) is the page that opens a commodity supply
+to members. It saves the supply's name and opening and closing dates in `fudscoops_commodity_supply`,
+which the member's Commodity Request page checks. **Schedule Commodity Supply**
+(`Secretary/schedule_commodity.php`) did nothing: its forms posted to `ajax/schedule.php`, which does
+not exist, and its table `fudscoops_commodity_schedule` is empty and read by no page.
+
+Removed:
+- the Schedule Commodity Supply page and its menu entry;
+- its two form scripts in `js/custom.js`;
+- the unused `Commodity::commoditySchedule()`.
+
+The empty `fudscoops_commodity_schedule` table is left in the database. An old copy of the page remains
+in the unused `Treasurerr/` folder.
+
+| File | Change |
+|---|---|
+| `Secretary/schedule_commodity.php` | **Deleted** |
+| `config/classes/View.php` | Secretary menu: Schedule Commodity Supply removed |
+| `js/custom.js` | Schedule form scripts removed |
+| `config/classes/Commodity.php` | `commoditySchedule()` removed |
+
+### Upload Loan Deductions page and results redesigned (Treasurer/batch_loan_deduction.php)
+
+- **The page:**
+  - a clear form (loan type from the database; a file box that shows the chosen file);
+  - a "How it works" guide pointing to the Loan Deductions download of loans to record, or the template;
+  - the login check is back (it was commented out, so anyone could open the page); a leftover line
+    referred to an undefined object.
+- **After an upload:**
+  - a headline: file, loan type, rows read, amount recorded and how many rows need attention. A month
+    repeated in the file is counted once.
+  - figures: recorded (new months), updated (month uploaded again), now fully repaid, and not
+    recorded (with overpayments flagged).
+  - a row-by-row table with filters (All, Not recorded, Recorded, Updated, Repaid or overpaid):
+    - file row number, member name and staff number, the loan (links to its schedule) and month;
+    - amount, and whether it came from the file or the monthly instalment;
+    - balance after, and the result with any notes;
+    - rows not recorded are highlighted with the reason.
+- **Upload button:** asks first, checks a file and loan type are chosen, shows progress and reports a
+  network error.
+- **Saved copy of the file:** stored under a safe name (date, time, cleaned file name). Before, it used
+  the name sent by the browser.
+
+| File | Change |
+|---|---|
+| `Treasurer/batch_loan_deduction.php` | Redesigned; login check |
+| `Treasurer/uploadLoansDeductionExcel.php` | Results redesigned; same deduction rules; safe file copy name |
+| `js/custom.js` | Upload button: checks, progress, errors |
+| `css/dashboard.css` | File box, guide and results styles |
+
+### Member dashboard: number of loans the member guarantees
+
+A new **Loans I Guarantee** figure on the member dashboard (`R/index.php`) shows how many loans the
+member actively guarantees (accepted and not yet fully repaid). Beneath it: requests waiting for their
+decision, how many are overdue (the figure turns red), and the maximum allowed at a time. It opens Loans I
+Guarantee (`R/guarantee.php`), which counts the same way.
+
+| File | Change |
+|---|---|
+| `R/index.php` | Loans I Guarantee figure |
+
+### Treasurer's Loan Deductions page redesigned (Treasurer/loan_deduction.php)
+
+- **Month by month:** choose a month (arrows or a month picker; the current month by default).
+- **Figures for that month:** loans due and the amount expected, deductions recorded (amount and
+  loans, and how many short), loans not recorded yet with the amount outstanding, and overdue loans.
+- **Tabs:** Not recorded (the default), Recorded, Short, Overdue, Fully repaid and All, plus search.
+- **Each loan shows:** the monthly instalment, the deduction for the chosen month against what is due,
+  repaid, balance and status, with **Record** opening the loan's schedule to record a single deduction.
+- **Download … to record (CSV)** gives the loans not yet recorded for the month in the batch upload
+  layout (staff number, month, amount due, plus name and loan for reference). The Treasurer corrects the
+  amounts to what payroll deducted and uploads it on Batch Deductions.
+- **Removed:** the extra copies of jQuery and DataTables, and their copy/Excel/PDF buttons.
+
+| File | Change |
+|---|---|
+| `Treasurer/loan_deduction.php` | Redesigned |
+
+### My Loan Deductions page redesigned (R/view_laon_deduction.php)
+
+- **Top of the page:** amount deducted so far (and this year), the monthly deduction and what is still to
+  repay, with links to My Loans and Payslips. A notice appears for an overdue loan.
+- **One card per loan being repaid or repaid:**
+  - total, monthly deduction, first deduction month and balance;
+  - a progress bar;
+  - a month-by-month table (newest first): amount due, amount deducted, the date it was recorded, and
+    a status: Deducted, Short, Not recorded yet (months not uploaded yet), or Upcoming.
+  - A repaid loan lists only the months that had deductions.
+- **Removed:** the welcome box and buttons (they are in the menu) and a second copy of jQuery.
+
+| File | Change |
+|---|---|
+| `R/view_laon_deduction.php` | Redesigned |
+
+### Officers' Loans page redesigned (Treasurer, Chairman, Secretary)
+
+The three `loans.php` pages share one layout, `config/loans/officer_loans.php`:
+- **Top of the page:** each officer's own work first (Treasurer: applications to review, loans to pay out;
+  Chairman: loans to authorize), what is still owed to the cooperative, and overdue loans.
+- **Tabs by stage, with counts:** All, To review / With Treasurer, To authorize / With Chairman, To pay out,
+  Repaying, Overdue, Awaiting guarantor, Fully repaid and Declined. The list now includes loans still
+  waiting for the guarantor, and declined ones.
+- **Search** by name, staff number or loan number.
+- **Columns:** amount (approved, with the amount applied if different), total to repay, balance, a stage
+  tag, and an overdue tag showing how far behind.
+- **Download CSV** of the current tab. It replaces the old copy/Excel/PDF buttons, and the extra copies
+  of jQuery and DataTables the page loaded are gone.
+- **Links:** to overdue loans, and for the Treasurer to loan deductions and the deduction upload.
+
+| File | Change |
+|---|---|
+| `config/loans/officer_loans.php` | **New** – shared loans page |
+| `config/classes/MemberG3.php` | New `officerLoans()` and `officerLoanTabs()` |
+| `Treasurer/loans.php`, `Chairman/loans.php`, `Secretary/loans.php` | Use the shared page |
+| `css/dashboard.css` | Loans page styles |
+
+### My Loans page redesigned (R/view_loan_approval.php)
+
+- **Top of the page:** what the member still owes, their monthly deductions and applications in progress,
+  with links to apply and to their deductions. Overdue and overpayment notices appear here too.
+- **One card per loan:**
+  - progress steps (Applied → Guarantor → Treasurer → Chairman → Paid out → Repaid);
+  - amount applied and approved, interest, total to repay, monthly deduction and start month,
+    guarantor;
+  - repayment progress bar with what is repaid and the balance, and an Overdue tag when behind;
+  - for a declined loan, the reason.
+- **Removed:** the page's welcome box, the Payslip and My Profile buttons (both are in the menu) and
+  a second copy of jQuery.
+
+| File | Change |
+|---|---|
+| `config/classes/MemberG3.php` | New `myLoans()` |
+| `R/view_loan_approval.php` | Redesigned |
+| `css/dashboard.css` | Repayment progress bar |
+
+### Guarantor pages redesigned; undertaking warnings fixed
+
+- **Loans I Guarantee** (`R/guarantee.php`) shows:
+  - requests waiting for the member's decision (with "Review and respond");
+  - loans they are guaranteeing now, with balance and an overdue warning;
+  - past requests.
+
+  Counts at the top show how many are waiting, how many are guaranteed now (and the maximum allowed),
+  and how many are overdue. The page also loaded a second copy of jQuery; that is removed.
+- **Guarantor Undertaking** (`R/undertaking.php`) shows:
+  - the applicant and loan (amount, amount to repay once fixed, period, materials, reason);
+  - the guarantor's details;
+  - what guaranteeing means;
+  - the undertaking with "Accept and sign", or "Decline to guarantee" with an optional reason.
+
+  Once decided it shows the decision. After deciding, the member returns to Loans I Guarantee.
+- **Access:** a member can now open only undertakings where they are the guarantor. Before, any
+  member could view any loan's details by changing `loan_id` in the address.
+- **Warnings fixed:** "Undefined array key bank/acct_no" came from bank fields that do not exist in the
+  staff record; they are removed. The Treasurer, Chairman and Secretary `undertaking.php` pages use the
+  same layout, read-only.
+
+| File | Change |
+|---|---|
+| `config/classes/MemberG3.php` | New `guaranteeRequests()` and `guarantorUndertakingPage()`; `getUndertaking()` uses it (read-only) |
+| `R/guarantee.php`, `R/undertaking.php` | Redesigned |
+| `js/custom.js` | Undertaking decision message; returns to Loans I Guarantee |
+| `css/dashboard.css` | Guarantee and undertaking styles |
+
+### Page requests work from every folder, locally and live
+
+The Business Loan page showed "Network or server error. Please try again." under the amount on local
+XAMPP. The scripts called the server with paths counted from the page's folder (`../../ajax/…`,
+`../ajax/…`, `ajax/…`). With the portal in a sub-folder (`http://localhost/fudscoops.fud.edu.ng/`),
+`../../ajax/` from `R/` pointed outside the portal (404). On the live site the browser cannot go above
+the domain root, so the same path happened to work there. The guarantor **Verify** and **Submit
+application** buttons, and 13 other calls, had the same problem locally.
+
+- `js/custom.js` works out the portal's root (`fudBase`) from the address it was loaded from, and all 78
+  calls use `fudBase + 'ajax/…'`. They work from any folder, locally and on live.
+- Five pages one folder deep had their own `../../ajax/` paths; they now use `../ajax/`.
+
+No database change.
+
+| File | Change |
+|---|---|
+| `js/custom.js` | `fudBase`; every `ajax/` call uses it |
+| `Secretary/addCommodityItems.php`, `Secretary/view_item_types.php`, `Secretary/view_items.php`, `Secretary/viewRequestDetails2.php`, `Chairman/viewRequestDetails1.php` | `../ajax/` paths |
+
+
+### Browsers load the new CSS and JavaScript after an update
+
+After the change above, the guarantor **Verify** button still showed "An unexpected error occurred": the
+browser was using its cached copy of the old `js/custom.js`. The server reply was correct ("Guarantor
+not found" for `SP/R/2965`; "Successfully verified!" for `SP/RA/2965`). The portal now adds the file's
+last-change time to `js/custom.js`, `css/style.css`, `css/sidebar.css` and `css/dashboard.css`
+(e.g. `custom.js?v=1792048982`), so browsers fetch the new file whenever it changes, including on live
+after a deploy.
+
+| File | Change |
+|---|---|
+| `config/classes/View.php` | `v()` version numbers on the portal's CSS and JS |
+
+---
+
+## 2026-10-14
+
+### Withdrawals keep a minimum balance; complete withdrawals reduce savings; kobo; guarantor notices
+
+Run `db/2026-10-14_kobo_and_withdrawals.sql` (#8) on the live database **before** uploading this code.
+
+**Minimum savings balance**
+- Savings withdrawals must leave at least the new setting **Minimum savings balance after a
+  withdrawal** (Savings Settings; starts at the minimum monthly savings, ₦3,000 locally). Before, the
+  rule was only stated on the page and never checked.
+- It is checked when the member asks, when the Treasurer sets the amount and again when the Chairman
+  approves. Each refusal says how much can be withdrawn.
+- **Complete withdrawal (member leaving):** the minimum does not apply. The member is paid everything
+  left after anything paid from savings for loans and commodity, so their savings go to zero. A member
+  with less than the minimum can still leave. The member's page and the Treasurer's page show the payout.
+
+**Complete withdrawals reduce savings**
+- An approved complete withdrawal (the amount paid out, plus loans and commodity settled from
+  savings) is now subtracted wherever a savings balance is worked out:
+  - member dashboard, savings and withdrawal pages;
+  - loan limit;
+  - share conversion;
+  - officer totals;
+  - Summary report and member statement.
+- The one complete withdrawal already approved (₦50,000) now reduces that member's balance.
+- The Chairman's approval now records `date_approved`; it was never set, so the reports for a
+  period left complete withdrawals out.
+
+**Kobo**
+- Savings, monthly savings, savings updates, withdrawals, loans, repayments, shares and commodity prices
+  are stored with two decimal places. Before, most were whole numbers or text.
+- The forms accept kobo, and the server code no longer rounds amounts to whole naira.
+- 304 old repayment schedule amounts stored with long decimals (e.g. 18333.333335) are rounded to kobo
+  (backup table `fudscoops_loan_repayments_backup_20261014`).
+- Totals are unchanged except loan amounts, which differ by 2 kobo across all loans.
+
+**Guarantors of overdue loans** are told on their member dashboard: "The loan you guaranteed for … is
+overdue: ₦… behind."
+
+**Officers** keep separate office and member logins, so their own loans and notices appear when they
+log in as a member; no change.
+
+**Also fixed**
+- The Chairman's Approve button for savings withdrawals approved even when Cancel was clicked.
+- Withdrawal approvals now show why they were refused.
+- The withdrawal details pages show the applicant's surname.
+
+| File | Change |
+|---|---|
+| `db/2026-10-14_kobo_and_withdrawals.sql` | **New** – database changes (#8 above) |
+| `config/classes/LoanControls.php` | Minimum balance, savings balance, most that can be withdrawn; payout for leaving members; overdue loans by guarantor |
+| `config/classes/MemberG1.php` | Withdrawal request/approvals check the minimum; complete withdrawals in balances; date approved; kobo; surname fix |
+| `config/classes/MemberG2.php`, `config/classes/MemberG3.php`, `config/classes/Dashboard.php`, `config/classes/Report.php` | Complete withdrawals subtracted from savings; kobo |
+| `config/classes/SavingsG1.php` | `parseAmount` keeps kobo; complete withdrawal request checks the payout |
+| `R/index.php` | Guarantor notice for overdue loans |
+| `R/savings/savings_withdrawal.php`, `R/complete_withdrawal.php`, `R/savings/update_savings.php` | Minimum balance shown and applied; kobo |
+| `Treasurer/savings_settings.php` | Minimum balance setting; kobo |
+| `Treasurer/view_proposed_member_details.php`, `Treasurer/treasurer_view_approved_savings.php` | Kobo |
+| `Treasurer/uploadSharesExcel.php`, `Secretary/uploadSharesExcel.php` | Kobo |
+| `Chairman/withdrawal_endorsement.php`, `js/custom.js` | Approve confirms properly; refusal reasons shown |
+
+### Loan controls: overdue loans, overpayments, decline reasons, leaving members
+
+Run `db/2026-10-14_loan_controls.sql` (#7) on the live database **before** uploading this code.
+All rules are in `config/classes/LoanControls.php`. Notices appear on dashboards only.
+
+**Overdue loans**
+- A month counts once the Treasurer has recorded deductions for it (any loan of that type has a
+  deduction that month). Months not uploaded, and future months, never count, so old loans are not
+  flagged for March–September 2026 just because those months were never uploaded.
+- A running loan is overdue when it has repaid less than the instalments due for those months.
+  Months with no deduction, or less than the instalment, are listed as missed or short.
+- Shown to the member (dashboard notice) and to the Treasurer, Chairman and Secretary: dashboard count
+  and a new **Overdue Loans** page in each menu. The loan details page shows the arrears.
+
+**Over-repayments**
+- A deduction that takes a loan past what it owes is recorded and flagged, not refused:
+  - Single entry and the batch upload say "OVERPAID by ₦…".
+  - A deduction uploaded for a loan that is already fully repaid is recorded on that loan as an
+    overpayment (before, it was skipped).
+- The member gets a dashboard notice and chooses on the new **Loan Overpayments** page: add it to
+  savings, pay one of their other loans, or a refund to a bank account (10-digit account number).
+- The Treasurer settles it on **Loan Overpayments**. Settling:
+  - adds a savings record for this month, or
+  - adds the amount to the chosen loan's deduction for this month, or
+  - records the refund's transfer reference.
+- If a month is re-uploaded so the excess changes, an unsettled overpayment is updated or removed.
+
+**Decline reasons**
+- The Treasurer and Chairman must give a reason when declining a loan. The guarantor may give one
+  (optional).
+- The member sees the reason under the loan's status in View Loan Approval.
+
+**Leaving members (complete withdrawal)**
+- A request is refused while the member:
+  - is guarantor for someone else's loan that is not fully repaid;
+  - has a loan or commodity request still being decided or awaiting payment or supply.
+- Loans and commodity being repaid must be repaid first. Alternatively, the member ticks "Use my
+  savings to pay what I owe, and pay me the rest".
+- The Treasurer's details page shows what is owed, the member's choice, and the amount to pay out.
+- The Chairman's approval checks everything again. If the member chose to settle, the loans and
+  commodity are paid from savings at approval. The Chairman sees the reason when approval is refused.
+- **Fixes:**
+  - The Approve button's "Are you sure?" no longer approves when Cancel is clicked.
+  - The request now uses the logged-in member's staff number, not one sent by the browser.
+
+**Other**
+- **Payslips:** the loan details page shows the applicant's payslips for the last three months, as on
+  the proposed member page. The complete-withdrawal, withdrawal and membership-decision pages now use
+  the same links (their old links pointed to no month). Officers' `slip.php` now requires an officer login.
+- **Soft Loans closed** (new setting "Soft loans open", Savings Settings). The Soft Loan page says so
+  and applications are refused.
+- **Early payoff:** the full interest is charged. The Treasurer records the whole balance; the
+  repayment schedule shows the amount.
+- **Older page fixes:**
+  - The guarantor undertaking now shows the date the guarantor decided (it always showed today).
+  - The complete-withdrawal details show the applicant's surname.
+
+| File | Change |
+|---|---|
+| `db/2026-10-14_loan_controls.sql` | **New** – database changes (#7 above) |
+| `config/classes/LoanControls.php` | **New** – overdue loans, overpayments, leaving checks |
+| `config/classes/MemberG3.php` | Decline reasons, guarantor reason, overpayment flag on every deduction, soft-loan switch, payslips and notices on loan details, early-payoff note |
+| `config/classes/MemberG1.php` | Chairman approval checks and settles; Treasurer details show what is owed; payslip links |
+| `config/classes/SavingsG1.php` | Complete withdrawal request checks obligations and records the settle choice |
+| `config/classes/CommodityLoan.php` | `creditRequest()` for settling commodity from savings |
+| `config/classes/Dashboard.php` | Overdue loans (Treasurer, Chairman, Secretary); overpayments to settle (Treasurer) |
+| `config/classes/View.php` | Menus: Overdue Loans (3 officers), Loan Overpayments (Treasurer, member) |
+| `config/loans/loan_application_form.php` | Soft loans closed notice |
+| `ajax/overpayment.php` | **New** – member's choice, Treasurer's settlement |
+| `ajax/complete_withdrawal.php` | Logged-in member only; settle choice |
+| `ajax/save_repayment.php`, `ajax/undertaking.php` | Overpaid message; guarantor's reason |
+| `R/overpayment.php`, `Treasurer/overpayments.php` | **New** |
+| `Treasurer/overdue_loans.php`, `Chairman/overdue_loans.php`, `Secretary/overdue_loans.php` | **New** |
+| `R/index.php`, `R/complete_withdrawal.php` | Overdue and overpayment notices; obligations and settle option |
+| `Treasurer/uploadLoansDeductionExcel.php` | Overpayments flagged; deductions after full repayment recorded |
+| `Treasurer/savings_settings.php` | Soft loans open setting |
+| `Treasurer/slip.php`, `Chairman/slip.php`, `Secretary/slip.php` | Officer login required |
+| `Chairman/complete_withdrawals.php`, `js/custom.js` | Approve confirms properly and shows refusals |
+
+### Loan limit raised to 3 times savings
+
+A member's open loans plus a new loan may now be up to **3 times** their savings balance (was 2).
+The limit is still the `loan_max_savings_multiple` setting in Savings Settings; the code's default is now 3 as well.
+The loan application page, the live amount check and the Treasurer's review all use it.
+
+| File | Change |
+|---|---|
+| `db/2026-10-14_loan_limit_3x.sql` | **New** – setting changed to 3 (#6 above) |
+| `config/classes/MemberG3.php` | Default limit 3 |
+| `Treasurer/savings_settings.php` | Default shown 3 |
 
 ---
 
@@ -641,7 +1179,6 @@ Files:
   no interest; the 10% applies only to loans that go through the Treasurer's review.
 - Many existing loans have two schedule rows from earlier re-uploads (304 rows for 155 loans);
   the latest is used.
-- `fudscoops_loan_repayments.amount_paid` holds whole naira only (kobo are dropped).
 
 ### Commodity
 - Special Commodity Request posts to `R/process_commodity_loan.php`, which does not exist; nothing is saved.
@@ -672,7 +1209,6 @@ Files:
 - Two membership records point to staff records that do not exist (`fudscoops_member.member_id`
   1077 → employee 2468, and 1310 → employee 0). They appear in the Membership report as
   "Staff record missing".
-- Complete withdrawals are not deducted from members' savings balances anywhere in the system.
 - The old staff reports (`Chairman/report.php`, `Secretary/report.php`) are from the HR system and
   are no longer linked from the menus.
 - Menu links to pages not present in this copy: Chairman **Loan Deduction**

@@ -3,6 +3,13 @@
 require_once '../config/vendor/autoload.php';
 require_once('../config/classes/Payslip.php');
 
+// Officers only (2 Secretary, 3 Treasurer, 4 Chairman): payslips of members and applicants
+if (!isset($_SESSION)) { session_start(); }
+if (!isset($_SESSION['access_level']) || !in_array((int) $_SESSION['access_level'], [2, 3, 4], true)) {
+    echo 'Please log in again.';
+    exit();
+}
+
 $payslip = new Payslip();
 $mpdf = new \Mpdf\Mpdf();
 

@@ -7,6 +7,11 @@
         $db = new DB();
         $member = new MemberG1();
         
+        // Officers only (2 Secretary, 3 Treasurer, 4 Chairman): this approves withdrawals
+        if (!isset($_SESSION['access_level']) || !in_array((int) $_SESSION['access_level'], [2, 3, 4], true)) {
+            echo 'Please log in again.';
+            exit;
+        }
         $withrawals_id = $db->cleanData($_POST['withrawals_id'] ?? null);
         $approved_amount = $db->cleanData($_POST['approved_amount'] ?? null);
         $approve = $db->cleanData($_POST['approve'] ?? null);

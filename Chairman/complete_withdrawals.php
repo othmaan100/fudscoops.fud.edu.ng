@@ -99,7 +99,7 @@
                                                             <td>
                                                                 <div class="d-flex m-2">
                                                                 
-                                                                  <button  class="btn btn-sm btn-success chairman_approve_com_withdrawal" data-withrawal="<?php echo $members['comp_withdrwal_id']; ?>" data-approve="approve" data-withdrawaltype="com_withdrawal" onclick="return confirm('Are you sure you want to approve this?');">Approve</button> 
+                                                                  <button  class="btn btn-sm btn-success chairman_approve_com_withdrawal" data-withrawal="<?php echo $members['comp_withdrwal_id']; ?>" data-approve="approve" data-withdrawaltype="com_withdrawal">Approve</button> 
                                 
                                                                
 
