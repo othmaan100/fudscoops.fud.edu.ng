@@ -720,10 +720,12 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
 }
 
 
- public function treasurerApproveComWithdrawal($withrawals_id, $approved_amount) {
+ // Treasurer sets the amount to pay a leaving member (it then goes to the Chairman; it can be changed until the Chairman decides).
+ // $account: the 10-digit account number, required when the one on the request is missing (it was lost before 2026-10-17).
+ // Returns 1, -1 or a message.
+ public function treasurerApproveComWithdrawal($withrawals_id, $approved_amount, $comment = null, $by = null, $account = null) {
         $db = new DB();
         $con = $db->getConnection();
-        $user = new User();
 
         // Amount paid out: savings less what is paid from savings for loans/commodity (a leaving member takes the rest)
         require_once('LoanControls.php');
@@ -732,33 +734,70 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
             return 'Enter the amount to pay out.';
         }
         $approved_amount = (string) round((float) $approved_amount, 2);
-        $req = $con->prepare("SELECT c.employee_id, c.settle_from_savings, m.member_id FROM fudscoops_complete_withrawal c
+        $req = $con->prepare("SELECT c.employee_id, c.settle_from_savings, c.chairman_approval, c.acount_number, m.member_id FROM fudscoops_complete_withrawal c
                               JOIN fudscoops_member m ON m.employee_id = c.employee_id WHERE c.comp_withdrwal_id = :id");
         $req->execute([':id' => $withrawals_id]);
         $req = $req->fetch(PDO::FETCH_ASSOC);
         if (!$req) {
             return 'Request not found.';
         }
+        if ((int) $req['chairman_approval'] !== 0) {
+            return 'This request has already been decided.';
+        }
+        $account = trim((string) $account);
+        if ($account !== '' && !preg_match('/^\d{10}$/', $account)) {
+            return 'Enter the 10-digit account number.';
+        }
+        if ($account === '' && !preg_match('/^\d{10}$/', (string) $req['acount_number'])) {
+            return 'The account number on this request is missing. Enter the member\'s 10-digit account number.';
+        }
         $ob = LoanControls::leavingObligations($req['member_id'], $req['employee_id'], LoanControls::savingsBalance($req['member_id']));
         if ($limit = LoanControls::withdrawalLimitError($req['member_id'], $approved_amount, $req['settle_from_savings'] ? $ob['total_owed'] : 0, false)) {
             return $limit;
         }
 
-        $sql = "UPDATE fudscoops_complete_withrawal
-                SET approved_amount = :approved_amount
-                WHERE comp_withdrwal_id  = :withrawals_id";
-
-        $stmt = $con->prepare($sql);
+        $comment = trim((string) $comment);
+        $stmt = $con->prepare("UPDATE fudscoops_complete_withrawal
+                               SET approved_amount = :approved_amount,
+                                   acount_number = COALESCE(:account, acount_number),
+                                   treasurer_comment = COALESCE(:comment, treasurer_comment),
+                                   treasurer_decided_by = COALESCE(:by, treasurer_decided_by), treasurer_decided_at = NOW()
+                               WHERE comp_withdrwal_id = :withrawals_id AND chairman_approval = 0");
         $stmt->bindParam(':withrawals_id', $withrawals_id, PDO::PARAM_INT);
         $stmt->bindParam(':approved_amount', $approved_amount, PDO::PARAM_STR);
-    
-        $secretaryApproveWithdrawal = $stmt->execute();
-    
-        if ($secretaryApproveWithdrawal) {
-            return 1;
-        } else {
-            return -1;
+        $stmt->bindValue(':account', $account === '' ? null : $account);
+        $stmt->bindValue(':comment', $comment === '' ? null : $comment);
+        $stmt->bindValue(':by', $by);
+        return $stmt->execute() ? 1 : -1;
+}
+
+ // Treasurer rejects a complete withdrawal request (chairman_approval -1); the reason is shown to the member,
+ // who can apply again. Returns 1 or a message.
+ public function treasurerRejectComWithdrawal($withrawals_id, $reason, $by) {
+        $reason = trim((string) $reason);
+        if ($reason === '') {
+            return 'Give the reason for rejecting; the member will see it.';
         }
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("UPDATE fudscoops_complete_withrawal
+                               SET chairman_approval = -1, approved_amount = 0, treasurer_comment = :c,
+                                   treasurer_decided_by = :by, treasurer_decided_at = NOW()
+                               WHERE comp_withdrwal_id = :id AND chairman_approval = 0");
+        $stmt->execute([':c' => $reason, ':by' => $by, ':id' => $withrawals_id]);
+        return $stmt->rowCount() ? 1 : 'This request has already been decided.';
+}
+
+ // Every complete withdrawal request for the Treasurer's list (Treasurer/complete_withdrawals.php), newest first
+ public function treasurerCompleteWithdrawals() {
+        $con = (new DB())->getConnection();
+        return $con->query("SELECT c.*, m.member_id, m.proposed_monthly_savings, e.sp_no, e.title, e.fname, e.lname, e.oname, e.dept, e.cadre,
+                                   b.name AS bank_name
+                            FROM fudscoops_complete_withrawal c
+                            JOIN fudscoops_member m ON m.employee_id = c.employee_id
+                            JOIN employee e ON e.employee_id = c.employee_id
+                            LEFT JOIN banks b ON b.id = c.bank_id
+                            WHERE COALESCE(c.complete_withrawal_is_deleted, 0) = 0
+                            ORDER BY c.comp_withdrwal_id DESC")->fetchAll(PDO::FETCH_ASSOC);
 }
   public function chairmanApproveComWithdrawal($withrawals_id) {
         $db = new DB();
@@ -776,6 +815,12 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
         $request = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$request) {
             return 'This request is not awaiting approval.';
+        }
+        if ((float) $request['approved_amount'] <= 0) {
+            return 'The Treasurer has not yet set the amount to pay.';
+        }
+        if (!preg_match('/^\d{10}$/', (string) $request['acount_number'])) {
+            return 'The account number on this request is missing. The Treasurer must enter it first.';
         }
         $obligations = LoanControls::leavingObligations($request['member_id'], $request['employee_id'],
                                                         (float) $this->getCurrentSavingsAmount($request['sp_no']));

@@ -21,6 +21,13 @@ class Dashboard{
         return $v === false || $v === null ? 0 : $v;
     }
 
+    private function row($sql, $params = [])
+    {
+        $stmt = $this->con->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
     // "Good morning" etc. and today's date in Nigerian time
     public static function greeting()
     {
@@ -273,6 +280,10 @@ class Dashboard{
                                                   AND COALESCE(withrawals_is_deleted, 0) = 0 ORDER BY withrawals_id DESC LIMIT 1", [':m' => $memberId]),
             'pending_complete' => (int) $this->value("SELECT COUNT(*) FROM fudscoops_complete_withrawal WHERE employee_id = :e AND chairman_approval = 0 AND COALESCE(complete_withrawal_is_deleted, 0) = 0", [':e' => $employeeId]) > 0,
             'target' => $target->fetch(PDO::FETCH_ASSOC) ?: null,
+            // A complete withdrawal the Treasurer rejected in the last 60 days, with the reason
+            'rejected_complete' => $this->row("SELECT treasurer_comment, treasurer_decided_at, date_applied FROM fudscoops_complete_withrawal
+                                               WHERE employee_id = :e AND chairman_approval = -1 AND COALESCE(complete_withrawal_is_deleted, 0) = 0
+                                                 AND treasurer_decided_at >= NOW() - INTERVAL 60 DAY ORDER BY treasurer_decided_at DESC LIMIT 1", [':e' => $employeeId]),
         ];
     }
 

@@ -287,7 +287,7 @@ class Report{
                     'heading' => 'Complete withdrawal',
                     'columns' => [['Applied', 'date'], ['Approved', 'date'], ['Amount', 'money'], ['Status', 'text']],
                     'rows' => array_map(function ($c) {
-                        return [$c['date_applied'], $c['chairman_approval'] == 1 ? $c['date_approved'] : '', $c['approved_amount'], $c['chairman_approval'] == 1 ? 'Approved' : 'Pending'];
+                        return [$c['date_applied'], $c['chairman_approval'] == 1 ? $c['date_approved'] : '', $c['approved_amount'], $c['chairman_approval'] == 1 ? 'Approved' : ($c['chairman_approval'] == -1 ? 'Rejected' : 'Pending')];
                     }, $complete),
                     'totals' => null,
                 ],

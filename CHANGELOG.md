@@ -25,6 +25,7 @@ at the top.
 | 8 | `db/2026-10-14_kobo_and_withdrawals.sql` | Money columns become DECIMAL(14,2) so amounts keep kobo (savings, monthly savings, savings updates, withdrawals, complete withdrawals, loans, repayments, shares, share unit, commodity prices). Old repayment schedule amounts with long decimals are rounded to kobo (backup `fudscoops_loan_repayments_backup_20261014`). Adds setting `withdrawal_min_balance` (starts at `min_monthly_savings`). Run after #7 and BEFORE uploading the code. | Applied 2026-10-14 | Pending |
 | 9 | `db/2026-10-15_withdrawal_decisions.sql` | Savings withdrawals: adds `treasurer_comment`, `treasurer_decided_by`, `treasurer_decided_at`; status -1 = rejected by the Treasurer. Moves requests the Treasurer had approved but that never reached the Chairman (status 0 with an amount) to status 1. Backup `fudscoops_withrawals_backup_20261015`; undo statements in the file. Run after #8 and BEFORE uploading the code. | Applied 2026-10-15 (12 requests moved on) | Pending |
 | 10 | `db/2026-10-17_withdrawal_chairman_decisions.sql` | Savings withdrawals: adds `chairman_comment`, `chairman_decided_by`, `chairman_decided_at`; `chairman_approval` -1 = rejected by the Chairman (reason shown to the member). No changes to existing records. Undo statement in the file. Run after #9 and BEFORE uploading the code. | Applied 2026-10-17 | Pending |
+| 11 | `db/2026-10-17_complete_withdrawal_decisions.sql` | Complete withdrawals: `acount_number` changes from INT to text (10-digit numbers had been saved as 2147483647 and leading zeros dropped). Restores leading zeros (pads to 10 digits) and clears the 21 numbers saved as 2147483647, which the Treasurer re-enters when approving. Adds `treasurer_comment`, `treasurer_decided_by`, `treasurer_decided_at`; `chairman_approval` -1 = rejected by the Treasurer. Backup `fudscoops_complete_withrawal_backup_20261017`; undo statements in the file. Run after #10 and BEFORE uploading the code. | Applied 2026-10-17 (29 numbers fixed, 21 cleared) | Pending |
 
 ### Meaning of the approval columns (as of 2026-10-06)
 
@@ -77,6 +78,58 @@ and `fudscoops_shares_conversion` (`conversion_status`, `chairman_approval`): 0 
 
 ## 2026-10-17
 
+### Treasurer complete withdrawal pages redesigned; account numbers repaired; Reject works
+
+Run `db/2026-10-17_complete_withdrawal_decisions.sql` (#11) on the live database **before** uploading this code.
+
+**Treasurer/complete_withdrawals.php:**
+- **Login check added:** the page had none, so anyone with the link could see it.
+- **Header and figures:** requests awaiting the Treasurer (and the total to pay), those that cannot be
+  paid yet, those awaiting the Chairman, and those approved.
+- **Tabs:** Awaiting you, Awaiting Chairman, Approved and Rejected, each with search. Before, a request
+  disappeared from this page once the Treasurer set an amount.
+- **Each open request shows:**
+  - the savings balance, what the member owes, and the amount to pay;
+  - the bank and account number, or "Account number missing";
+  - a check: Clear, Pays debts from savings, Owes but not paying from savings, Guarantor or request
+    open, Nothing to pay, or No account.
+
+**Treasurer/view_com_withdrawal_details.php:**
+- **Rebuilt in the style of the savings withdrawal details page:**
+  - figures for savings balance, amount owed and amount to pay out;
+  - notices for anything that stops payment;
+  - the member's details and payslips;
+  - their loans, commodity and guarantees;
+  - recent savings, with a link to the member record.
+- **Pay into:** shows the account the member gave on the request. The old form showed bank fields from
+  the staff record, which do not exist, so they were always blank. When the account number is missing,
+  the last account the member used for a savings withdrawal is shown as a hint.
+- **Decision panel:** the amount to pay (up to the payout), the account number when it is missing, a
+  comment, **Approve and send to Chairman**, and **Reject request**. Rejecting needs a reason the
+  member sees. The amount can be changed until the Chairman decides.
+
+**Fixes:**
+- **Account numbers lost:** the column was INT, so 21 of 50 account numbers were saved as 2147483647
+  and 22 lost their leading zero. The migration repairs the leading zeros and clears the lost numbers.
+  The Treasurer enters the correct one when approving, and the Chairman cannot approve without it.
+- **Reject approved the request:** the old form's Reject sent the amount, and the endpoint treated it as
+  an approval. The old endpoint now refuses it; rejecting is done on the new page.
+- **Rejected requests:** the member sees the rejection and reason on Complete Withdrawal and can apply
+  again. Reports and the member record show "Rejected" instead of "Pending".
+- **Roles:** only the Treasurer can set the amount (`ajax/secretary_withdrawal_endorsement.php` allowed
+  any officer). The Chairman cannot approve before the Treasurer has set an amount.
+
+| File | Change |
+|---|---|
+| `db/2026-10-17_complete_withdrawal_decisions.sql` | **New** – database changes (#11 above) |
+| `Treasurer/complete_withdrawals.php` | Redesigned; login check |
+| `Treasurer/view_com_withdrawal_details.php` | Redesigned |
+| `ajax/complete_withdrawal_decision.php` | **New** – Treasurer approve or reject |
+| `ajax/secretary_withdrawal_endorsement.php` | Complete withdrawal amount is Treasurer only; old Reject no longer approves |
+| `config/classes/MemberG1.php` | `treasurerApproveComWithdrawal()` checks the stage, takes the account number and comment, records who decided; new `treasurerRejectComWithdrawal()` and `treasurerCompleteWithdrawals()`; `chairmanApproveComWithdrawal()` needs the amount and account number |
+| `config/classes/Dashboard.php` | `memberSavingsInfo()` returns a recent rejection (`rejected_complete`); new `row()` helper |
+| `R/complete_withdrawal.php` | Shows a Treasurer rejection and its reason |
+| `config/classes/Report.php`, `Treasurer/member_profile.php` | Rejected complete withdrawals labelled "Rejected" |
 ### Treasurer member list redesigned; new member record page
 
 No database changes.

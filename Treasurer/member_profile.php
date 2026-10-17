@@ -241,7 +241,7 @@
                           <td class="num">–</td>
                           <td class="num"><?php echo (float) $c['approved_amount'] > 0 ? $money($c['approved_amount']) : '–'; ?></td>
                           <td class="small"><?php echo $h($c['acount_number']); ?></td>
-                          <td><?php echo $c['chairman_approval'] == 1 ? '<span class="fud-pill ok">Approved</span>' : '<span class="fud-pill wait">Pending</span>'; ?></td>
+                          <td><?php echo $c['chairman_approval'] == 1 ? '<span class="fud-pill ok">Approved</span>' : ($c['chairman_approval'] == -1 ? '<span class="fud-pill no">Rejected</span>' : '<span class="fud-pill wait">Pending</span>'); ?></td>
                           <td class="text-right"><a href="view_com_withdrawal_details.php?withrawals_id=<?php echo (int) $c['comp_withdrwal_id']; ?>&sp_no=<?php echo urlencode($m['sp_no']); ?>">Open</a></td></tr>
                       <?php } ?>
                       <?php foreach ($withdrawals as $w) { ?>

@@ -43,9 +43,18 @@ if (!empty($withdrawaltype)) {
         exit;
     }
 
-    // Treasurer approval (needs approved_amount)
+    // Treasurer approval (needs approved_amount). The old form's Reject also sent the amount and approved the request;
+    // the Treasurer now decides on Treasurer/view_com_withdrawal_details.php (ajax/complete_withdrawal_decision.php).
+    if (isset($_POST['action']) && $_POST['action'] === 'Decline') {
+        echo 'Please reload the page and reject from the request page.';
+        exit;
+    }
     if ($approved_amount !== null) {
-        echo $member->treasurerApproveComWithdrawal($withrawals_id, $approved_amount);
+        if ((int) $_SESSION['access_level'] !== 3) {
+            echo 'Only the Treasurer can set the amount.';
+            exit;
+        }
+        echo $member->treasurerApproveComWithdrawal($withrawals_id, $approved_amount, null, isset($_SESSION['username']) ? $_SESSION['username'] : null);
         exit;
     }
 

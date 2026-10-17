@@ -42,6 +42,10 @@
               <div><div class="fud-stat-label">Monthly savings</div><div class="fud-stat-value">₦<?php echo number_format($info['monthly']); ?></div></div></div>
           </div>
 
+          <?php if (!empty($info['rejected_complete']) && !$info['pending_complete']) { ?>
+            <div class="fud-notice"><i class="mdi mdi-close-circle"></i>
+              <span>Your complete withdrawal request<?php echo $info['rejected_complete']['date_applied'] ? ' of ' . date('d M Y', strtotime($info['rejected_complete']['date_applied'])) : ''; ?> was rejected by the Treasurer<?php echo $info['rejected_complete']['treasurer_comment'] ? ': ' . htmlspecialchars($info['rejected_complete']['treasurer_comment']) : '.'; ?> You can apply again.</span></div>
+          <?php } ?>
           <?php if ($info['pending_complete']) { ?>
             <div class="fud-notice"><i class="mdi mdi-clock-outline"></i>
               <span>Your complete withdrawal request is awaiting approval.</span>
