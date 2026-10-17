@@ -95,7 +95,7 @@ echo $view->subHeader('../');
       <?php } ?>
       <?php foreach ($dashboard->recentWithdrawalRejections($memberId) as $rj) { ?>
         <div class="fud-notice"><i class="mdi mdi-close-circle"></i>
-          <span>Your savings withdrawal request of ₦<?php echo number_format((float) $rj['proposed_withrawal_amount'], 2); ?> was rejected<?php echo $rj['treasurer_comment'] ? ': ' . htmlspecialchars($rj['treasurer_comment']) : '.'; ?></span>
+          <span>Your savings withdrawal request of ₦<?php echo number_format((float) $rj['proposed_withrawal_amount'], 2); ?> was rejected by the <?php echo $rj['rejected_by']; ?><?php echo $rj['reason'] ? ': ' . htmlspecialchars($rj['reason']) : '.'; ?></span>
           <a href="savings/savings_withdrawal.php">Withdraw Savings</a></div>
       <?php } ?>
       <?php foreach ($overpayments as $op) { ?>

@@ -35,6 +35,8 @@
         // Stage
         if ((int) $w['status'] === -1) {
             $stage = ['Rejected by Treasurer', 'no'];
+        } elseif ((int) $w['chairman_approval'] === -1) {
+            $stage = ['Rejected by Chairman', 'no'];
         } elseif ((int) $w['chairman_approval'] === 1) {
             $stage = ['Approved', 'ok'];
         } elseif ((int) $w['status'] === 1 || (float) $w['approved_withrawal_amount'] > 0) {
@@ -169,6 +171,9 @@
                   <?php } elseif ($stage[0] === 'Approved') { ?>
                     <div class="fud-notice success mb-0"><i class="mdi mdi-check-circle"></i>
                       <span>Approved for <?php echo $money($w['approved_withrawal_amount']); ?><?php echo substr($w['approved_date'], 0, 4) > '2000' ? ' on ' . date('d M Y', strtotime($w['approved_date'])) : ''; ?>.</span></div>
+                  <?php } elseif ($stage[0] === 'Rejected by Chairman') { ?>
+                    <div class="fud-notice mb-0"><i class="mdi mdi-close-circle"></i>
+                      <span>Rejected by the Chairman<?php echo $w['chairman_decided_at'] ? ' on ' . date('d M Y', strtotime($w['chairman_decided_at'])) : ''; ?><?php echo $w['chairman_comment'] ? ': ' . $h($w['chairman_comment']) : '.'; ?></span></div>
                   <?php } else { ?>
                     <div class="fud-notice mb-0"><i class="mdi mdi-close-circle"></i>
                       <span>Rejected<?php echo $w['treasurer_decided_at'] ? ' on ' . date('d M Y', strtotime($w['treasurer_decided_at'])) : ''; ?><?php echo $w['treasurer_comment'] ? ': ' . $h($w['treasurer_comment']) : '.'; ?></span></div>

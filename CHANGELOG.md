@@ -24,6 +24,7 @@ at the top.
 | 7 | `db/2026-10-14_loan_controls.sql` | Adds `fudscoops_loan.guarantor_comment`; new table `fudscoops_loan_overpayments`; adds `settle_from_savings`, `amount_owed`, `settled_at` to `fudscoops_complete_withrawal`; setting `soft_loan_open` = 0. No changes to existing records. Undo statements are in the file. Run after #5 and BEFORE uploading the code from 2026-10-14. | Applied 2026-10-14 | Pending |
 | 8 | `db/2026-10-14_kobo_and_withdrawals.sql` | Money columns become DECIMAL(14,2) so amounts keep kobo (savings, monthly savings, savings updates, withdrawals, complete withdrawals, loans, repayments, shares, share unit, commodity prices). Old repayment schedule amounts with long decimals are rounded to kobo (backup `fudscoops_loan_repayments_backup_20261014`). Adds setting `withdrawal_min_balance` (starts at `min_monthly_savings`). Run after #7 and BEFORE uploading the code. | Applied 2026-10-14 | Pending |
 | 9 | `db/2026-10-15_withdrawal_decisions.sql` | Savings withdrawals: adds `treasurer_comment`, `treasurer_decided_by`, `treasurer_decided_at`; status -1 = rejected by the Treasurer. Moves requests the Treasurer had approved but that never reached the Chairman (status 0 with an amount) to status 1. Backup `fudscoops_withrawals_backup_20261015`; undo statements in the file. Run after #8 and BEFORE uploading the code. | Applied 2026-10-15 (12 requests moved on) | Pending |
+| 10 | `db/2026-10-17_withdrawal_chairman_decisions.sql` | Savings withdrawals: adds `chairman_comment`, `chairman_decided_by`, `chairman_decided_at`; `chairman_approval` -1 = rejected by the Chairman (reason shown to the member). No changes to existing records. Undo statement in the file. Run after #9 and BEFORE uploading the code. | Applied 2026-10-17 | Pending |
 
 ### Meaning of the approval columns (as of 2026-10-06)
 
@@ -74,6 +75,100 @@ and `fudscoops_shares_conversion` (`conversion_status`, `chairman_approval`): 0 
 
 ---
 
+## 2026-10-17
+
+### Treasurer member list redesigned; new member record page
+
+No database changes.
+
+**Treasurer/member_list.php:**
+- **Header and figures:** number of members and applicants, total savings balance, shares, and loans
+  outstanding (with how many members are repaying).
+- **Members tab:** each approved member's monthly savings, savings balance, shares and loans owed
+  (including commodity owed). The list has:
+  - search, and a filter: repaying a loan, owing for commodity, shareholders, no shares, savings
+    below the minimum, negative savings balance;
+  - sorting by any column, and pages of 25;
+  - **Download CSV** of the rows shown.
+- **Applicants tab:** the same review links as before, restyled.
+- **View record:** each member has a button that opens their full record.
+- **Old table plugin removed:** the page no longer loads the bootstrap-table files, whose paths
+  pointed outside the site.
+
+**Treasurer/member_profile.php (new):** one member's full record, read-only.
+- **Figures:** savings balance (with monthly savings and how much can be withdrawn), shares (amount and
+  units), loans owed (and commodity), and how many active loans they guarantee.
+- **Notices:** overdue loans, loan overpayments, requests not yet in the balance, and a negative
+  savings balance.
+- **Details:** personal details, the last three months' payslips, and next of kin.
+- **Tabs:**
+  - savings statement (newest first, with totals saved and withdrawn);
+  - withdrawal requests at every stage, including complete withdrawals;
+  - shares;
+  - loans (total, repaid, balance, guarantor, status, decline reason);
+  - loans the member guarantees;
+  - commodity requests.
+
+  Each item links to its own details page.
+
+**Data note:** 64 members show a negative savings balance (−₦2,964,600 in total). Their approved
+withdrawals are more than the savings recorded, most likely because some savings were never uploaded.
+Use the "Negative savings balance" filter to review them.
+
+| File | Change |
+|---|---|
+| `Treasurer/member_list.php` | Redesigned; View record button |
+| `Treasurer/member_profile.php` | **New** – member record |
+| `config/classes/MemberG1.php` | New `treasurerMemberDirectory()`: every approved member with savings balance, shares, loans and commodity owed in one query (checked against `LoanControls::savingsBalance`, `MemberG2::getShareHolding` and `Dashboard::memberLoans` for all 1,308 members) |
+
+### Chairman's savings withdrawal page redesigned; Reject works and gives a reason
+
+Run `db/2026-10-17_withdrawal_chairman_decisions.sql` (#10) on the live database **before** uploading this code.
+
+**Chairman/withdrawal_endorsement.php:**
+- **Header and figures:** requests awaiting the Chairman, total to pay out, and how many need attention.
+- **Each request shows:**
+  - the member, staff number and department;
+  - the amount requested and its date;
+  - the Treasurer's amount, flagged when it is less or more than requested, with the Treasurer's comment;
+  - the savings balance now and after the withdrawal;
+  - the bank account to pay into.
+- **Below minimum:** a request that would take savings below the minimum balance is marked and its
+  Approve button is disabled. Five of the 11 requests waiting locally are like this; they are old
+  requests where the Treasurer approved more than the savings allow.
+- **Approve and Reject:** each works per row or for the ticked rows, with search. Reject opens a panel
+  for the reason, which is required and shown to the member. When some ticked requests fail, each
+  one's reason is listed.
+- **Recent decisions:** the Chairman's decisions from the last 14 days.
+
+**Fixes:**
+- **Reject did nothing:** the per-row Reject posted to `reject_withdrawal.php`, which does not exist.
+- **Bulk endpoint unprotected:** `ajax/bulk_approve_withdrawal.php` had no login check, so anyone could
+  approve or reject any withdrawal. It also skipped the minimum-balance check and the approval date.
+  It is now Chairman only and decides each request through `MemberG1`.
+- **Requests sent twice:** `js/custom.js` repeated the page's bulk approve, reject and search handlers,
+  so one click sent every request twice. The copy is removed.
+- **Chairman approval open to others:** `ajax/secretary_withdrawal_endorsement.php` let the Secretary and
+  Treasurer give the Chairman's approval (normal and complete withdrawals). It is now Chairman only.
+- **Approval date:** approval now sets `approved_date`, used by the statement and reports. It can only
+  happen once, and only for requests awaiting the Chairman.
+- **Member notices:** a Chairman rejection shows on the member's dashboard and on Withdraw Savings with
+  its reason, like a Treasurer rejection ("rejected by the Chairman: …"). It also shows on the
+  Treasurer's withdrawal details page, and the Treasurer can no longer change the request.
+
+| File | Change |
+|---|---|
+| `db/2026-10-17_withdrawal_chairman_decisions.sql` | **New** – database changes (#10 above) |
+| `Chairman/withdrawal_endorsement.php` | Redesigned |
+| `ajax/bulk_approve_withdrawal.php` | Rewritten – Chairman only; approve or reject (with reason) one or more requests |
+| `ajax/secretary_withdrawal_endorsement.php` | Chairman approval is Chairman only; records who approved |
+| `config/classes/MemberG1.php` | `chairmanApproveWithdrawal()` checks the stage and sets `approved_date` and who decided; new `chairmanRejectWithdrawal()`; Chairman list has more fields, skips deleted requests, oldest first |
+| `config/classes/Dashboard.php` | `recentWithdrawalRejections()` includes Chairman rejections (`reason`, `rejected_by`) |
+| `R/index.php`, `R/savings/savings_withdrawal.php` | Rejection notice says who rejected and why |
+| `Treasurer/view_withdrawal_details.php` | Shows "Rejected by Chairman" with the reason |
+| `js/custom.js` | Removed the duplicate Chairman bulk handlers |
+
+---
 ## 2026-10-15
 
 ### Savings withdrawal request page redesigned; Reject works; approved requests reach the Chairman

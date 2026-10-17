@@ -45,7 +45,7 @@
 
           <?php foreach ((new Dashboard())->recentWithdrawalRejections($memberId) as $rj) { ?>
             <div class="fud-notice"><i class="mdi mdi-close-circle"></i>
-              <span>Your request of ₦<?php echo number_format((float) $rj['proposed_withrawal_amount'], 2); ?> on <?php echo date('d M Y', strtotime($rj['proposed_date'])); ?> was rejected<?php echo $rj['treasurer_comment'] ? ': ' . $h($rj['treasurer_comment']) : '.'; ?></span></div>
+              <span>Your request of ₦<?php echo number_format((float) $rj['proposed_withrawal_amount'], 2); ?> on <?php echo date('d M Y', strtotime($rj['proposed_date'])); ?> was rejected by the <?php echo $rj['rejected_by']; ?><?php echo $rj['reason'] ? ': ' . $h($rj['reason']) : '.'; ?></span></div>
           <?php } ?>
           <?php if ($info['pending_withdrawal']) { ?>
             <div class="fud-notice"><i class="mdi mdi-clock-outline"></i>

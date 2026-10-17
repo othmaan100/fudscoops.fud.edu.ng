@@ -35,6 +35,10 @@ if (!empty($withdrawaltype)) {
 
     // Chairman approval (ONLY needs approve)
     if (!empty($approve)) {
+        if ((int) $_SESSION['access_level'] !== 4) {
+            echo 'Only the Chairman can give the final approval.';
+            exit;
+        }
         echo $member->chairmanApproveComWithdrawal($withrawals_id);
         exit;
     }
@@ -57,7 +61,11 @@ if (!empty($withdrawaltype)) {
 
 // Chairman approval (ONLY needs approve)
 if (!empty($approve)) {
-    echo $member->chairmanApproveWithdrawal($withrawals_id);
+    if ((int) $_SESSION['access_level'] !== 4) {
+        echo 'Only the Chairman can give the final approval.';
+        exit;
+    }
+    echo $member->chairmanApproveWithdrawal($withrawals_id, isset($_SESSION['username']) ? $_SESSION['username'] : null);
     exit;
 }
 

@@ -245,9 +245,14 @@ class Dashboard{
     // Savings withdrawal requests the Treasurer rejected in the last 60 days, with the reason (member notices)
     public function recentWithdrawalRejections($memberId)
     {
-        $stmt = $this->con->prepare("SELECT withrawals_id, proposed_withrawal_amount, proposed_date, treasurer_comment, treasurer_decided_at
-                                     FROM fudscoops_withrawals WHERE member_id = :m AND status = -1 AND COALESCE(withrawals_is_deleted, 0) = 0
-                                       AND treasurer_decided_at >= NOW() - INTERVAL 60 DAY ORDER BY treasurer_decided_at DESC");
+        // Rejected by the Treasurer (status -1) or by the Chairman (chairman_approval -1); reason = the one who rejected it
+        $stmt = $this->con->prepare("SELECT withrawals_id, proposed_withrawal_amount, proposed_date,
+                                            IF(chairman_approval = -1, chairman_comment, treasurer_comment) AS reason,
+                                            IF(chairman_approval = -1, 'Chairman', 'Treasurer') AS rejected_by,
+                                            IF(chairman_approval = -1, chairman_decided_at, treasurer_decided_at) AS decided_at
+                                     FROM fudscoops_withrawals
+                                     WHERE member_id = :m AND (status = -1 OR chairman_approval = -1) AND COALESCE(withrawals_is_deleted, 0) = 0
+                                     HAVING decided_at >= NOW() - INTERVAL 60 DAY ORDER BY decided_at DESC");
         $stmt->execute([':m' => $memberId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }

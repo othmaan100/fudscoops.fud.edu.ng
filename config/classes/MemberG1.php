@@ -145,12 +145,22 @@ public function getchairmanWithdrawalEndorsment() {
                 fw.withrawals_id,
                 fw.proposed_withrawal_amount,
                 fw.approved_withrawal_amount,
+                fw.proposed_date,
+                fw.bank_id,
+                fw.acount_number,
+                fw.account_name,
+                fw.treasurer_comment,
+                fw.treasurer_decided_by,
+                fw.treasurer_decided_at,
+                b.name AS bank_name,
                 fw.member_id,
                 fm.employee_id,
                 e.sp_no,
+                e.title,
                 e.fname,
                 e.lname,
                 e.oname,
+                e.dept,
                 e.cadre,
                 (
                     SELECT SUM(fs.savings_amount)
@@ -163,10 +173,14 @@ public function getchairmanWithdrawalEndorsment() {
                 fudscoops_member fm ON fw.member_id = fm.member_id
             INNER JOIN
                 employee e ON fm.employee_id = e.employee_id
+            LEFT JOIN
+                banks b ON b.id = fw.bank_id
             WHERE
                 fw.status = '1'
                 AND fw.chairman_approval = '0'
-                AND fw.approved_withrawal_amount !=0;
+                AND fw.approved_withrawal_amount !=0
+                AND COALESCE(fw.withrawals_is_deleted, 0) = 0
+            ORDER BY fw.treasurer_decided_at, fw.withrawals_id;
             ";
 
         $stmt = $con->prepare($sql);
@@ -660,34 +674,49 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
         $stmt->execute([':c' => $reason, ':by' => $by, ':id' => $withrawals_id]);
         return $stmt->rowCount() ? 1 : 'This request has already been decided.';
 }
-  public function chairmanApproveWithdrawal($withrawals_id) {
+  // Chairman approves a request the Treasurer approved (status 1): the amount leaves savings from now (approved_date). Returns 1 or a message.
+  public function chairmanApproveWithdrawal($withrawals_id, $by = null) {
         $db = new DB();
         $con = $db->getConnection();
-        $user = new User();
-        
-        //return $withrawals_id;
 
         // The minimum savings balance must still stay after this withdrawal (savings may have changed since)
         require_once('LoanControls.php');
-        $w = $con->prepare("SELECT member_id, approved_withrawal_amount FROM fudscoops_withrawals WHERE withrawals_id = :id");
+        $w = $con->prepare("SELECT member_id, approved_withrawal_amount, status, chairman_approval FROM fudscoops_withrawals WHERE withrawals_id = :id");
         $w->execute([':id' => $withrawals_id]);
         $w = $w->fetch(PDO::FETCH_ASSOC);
-        if ($w && ($limit = LoanControls::withdrawalLimitError($w['member_id'], $w['approved_withrawal_amount']))) {
+        if (!$w) {
+            return 'Withdrawal request not found.';
+        }
+        if ((int) $w['status'] !== 1 || (int) $w['chairman_approval'] !== 0 || (float) $w['approved_withrawal_amount'] <= 0) {
+            return 'This request is not awaiting the Chairman.';
+        }
+        if ($limit = LoanControls::withdrawalLimitError($w['member_id'], $w['approved_withrawal_amount'])) {
             return 'Cannot approve. ' . $limit;
         }
 
-        $sql = "UPDATE fudscoops_withrawals SET chairman_approval = '1' WHERE fudscoops_withrawals.withrawals_id = :withrawals_id";
-    
-        $stmt = $con->prepare($sql);
+        $stmt = $con->prepare("UPDATE fudscoops_withrawals
+                               SET chairman_approval = 1, approved_date = NOW(), chairman_decided_by = :by, chairman_decided_at = NOW()
+                               WHERE withrawals_id = :withrawals_id AND status = 1 AND chairman_approval = 0");
         $stmt->bindParam(':withrawals_id', $withrawals_id, PDO::PARAM_INT);
-    
-        $chairmanApproveWithdrawal = $stmt->execute();
-    
-        if ($chairmanApproveWithdrawal) {
-            return 1;
-        } else {
+        $stmt->bindValue(':by', $by);
+        if (!$stmt->execute()) {
             return -1;
         }
+        return $stmt->rowCount() ? 1 : 'This request has already been decided.';
+}
+
+  // Chairman rejects a request awaiting them (chairman_approval -1); the reason is shown to the member. Returns 1 or a message.
+  public function chairmanRejectWithdrawal($withrawals_id, $reason, $by = null) {
+        $reason = trim((string) $reason);
+        if ($reason === '') {
+            return 'Give the reason for rejecting; the member will see it.';
+        }
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("UPDATE fudscoops_withrawals
+                               SET chairman_approval = -1, chairman_comment = :c, chairman_decided_by = :by, chairman_decided_at = NOW()
+                               WHERE withrawals_id = :id AND status = 1 AND chairman_approval = 0");
+        $stmt->execute([':c' => $reason, ':by' => $by, ':id' => $withrawals_id]);
+        return $stmt->rowCount() ? 1 : 'This request is not awaiting the Chairman.';
 }
 
 
@@ -2365,6 +2394,52 @@ public function getSavingRecords() {
         }
         
          // Get APPROVED members (chairman_approval = 1)
+        // Approved members with their figures for the Treasurer's member list (Treasurer/member_list.php), in one query.
+        // savings_balance uses the same sums as LoanControls::savingsBalance; loans_outstanding = loans being repaid
+        // (total payable less repayments); commodity_outstanding = supplied commodity not yet repaid.
+        public function treasurerMemberDirectory() {
+            $con = (new DB())->getConnection();
+            $sql = "
+                SELECT m.member_id, m.employee_id, m.proposed_monthly_savings, m.reg_date, m.is_active,
+                       e.sp_no, e.title, e.fname, e.lname, e.oname, e.cadre, e.dept, e.phone_no,
+                       COALESCE(s.saved, 0) - COALESCE(w.withdrawn, 0) - COALESCE(c.withdrawn, 0) AS savings_balance,
+                       COALESCE(s.last_saved, '') AS last_saved,
+                       COALESCE(sh.shares, 0) AS shares,
+                       COALESCE(l.open_loans, 0) AS open_loans,
+                       COALESCE(l.outstanding, 0) AS loans_outstanding,
+                       COALESCE(cm.outstanding, 0) AS commodity_outstanding
+                FROM fudscoops_member m
+                INNER JOIN employee e ON m.employee_id = e.employee_id
+                LEFT JOIN (SELECT member_idmember AS member_id, SUM(savings_amount) AS saved,
+                                  MAX(CONCAT(LPAD(year, 4, '0'), '-', LPAD(month, 2, '0'))) AS last_saved
+                           FROM fudscoops_savings GROUP BY member_idmember) s ON s.member_id = m.member_id
+                LEFT JOIN (SELECT member_id, SUM(approved_withrawal_amount) AS withdrawn
+                           FROM fudscoops_withrawals WHERE chairman_approval = 1 GROUP BY member_id) w ON w.member_id = m.member_id
+                LEFT JOIN (SELECT employee_id, SUM(approved_amount + CASE WHEN settled_at IS NOT NULL THEN amount_owed ELSE 0 END) AS withdrawn
+                           FROM fudscoops_complete_withrawal WHERE chairman_approval = 1 AND COALESCE(complete_withrawal_is_deleted, 0) = 0
+                           GROUP BY employee_id) c ON c.employee_id = m.employee_id
+                LEFT JOIN (SELECT member_id, SUM(amount_paid) AS shares
+                           FROM fudscoops_shares WHERE share_status = 1 AND shares_is_deleted = 0 GROUP BY member_id) sh ON sh.member_id = m.member_id
+                LEFT JOIN (SELECT ln.member_id, COUNT(*) AS open_loans,
+                                  SUM(GREATEST(0, COALESCE(ln.total_payable, NULLIF(ln.amount_recommended, 0), ln.loan_amount) - COALESCE(rp.paid, 0))) AS outstanding
+                           FROM fudscoops_loan ln
+                           LEFT JOIN (SELECT loan_id, SUM(amount_paid) AS paid FROM fudscoops_loan_repayments
+                                      WHERE status = 1 AND COALESCE(is_deleted, 0) = 0 GROUP BY loan_id) rp ON rp.loan_id = ln.loan_id
+                           WHERE ln.loan_status IN ('Disbursed', 'Approved')
+                           GROUP BY ln.member_id) l ON l.member_id = m.member_id
+                LEFT JOIN (SELECT a.member_id,
+                                  SUM(GREATEST(0, COALESCE(a.total_payable, a.total_amount) - COALESCE(cr.paid, 0))) AS outstanding
+                           FROM fudscoops_commodity_loan_applications a
+                           LEFT JOIN (SELECT application_id, SUM(amount_paid) AS paid FROM fudscoops_commodity_repayments GROUP BY application_id) cr
+                                  ON cr.application_id = a.application_id
+                           WHERE a.status = 'supplied'
+                           GROUP BY a.member_id) cm ON cm.member_id = m.member_id
+                WHERE m.chairman_approval = 1 AND m.treasurer_approval = 1
+                ORDER BY e.fname, e.lname
+            ";
+            return $con->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+        }
+
         public function getTreasurerApprovedMembers() {
              $db = new DB(); 
             $con = $db->getConnection();
