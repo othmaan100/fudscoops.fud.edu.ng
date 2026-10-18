@@ -121,7 +121,7 @@
                       <tr data-id="<?php echo (int) $r['withrawals_id']; ?>" data-label="<?php echo $h($label); ?>">
                         <td><input type="checkbox" class="wd-check" value="<?php echo (int) $r['withrawals_id']; ?>"<?php echo $r['problem'] ? ' data-problem="1"' : ''; ?>></td>
                         <td style="white-space:normal;min-width:170px">
-                          <strong><?php echo $h($r['name']); ?></strong>
+                          <a href="view_withdrawal.php?withrawals_id=<?php echo (int) $r['withrawals_id']; ?>" class="font-weight-bold text-dark"><?php echo $h($r['name']); ?></a>
                           <div class="small text-muted"><?php echo $h($r['sp_no']); ?><?php echo $r['dept'] ? ' · ' . $h($r['dept']) : ''; ?></div>
                         </td>
                         <td class="num text-nowrap">
@@ -143,6 +143,7 @@
                           <div class="small text-muted"><?php echo $h($r['acount_number'] ?: '–'); ?><?php echo $r['account_name'] ? ' · ' . $h($r['account_name']) : ''; ?></div>
                         </td>
                         <td class="text-right text-nowrap">
+                          <a href="view_withdrawal.php?withrawals_id=<?php echo (int) $r['withrawals_id']; ?>" class="btn btn-sm btn-light">Details</a>
                           <button type="button" class="btn btn-sm btn-success wd-approve"<?php echo $r['problem'] ? ' disabled title="' . $h($r['problem']) . '"' : ''; ?>><i class="mdi mdi-check"></i> Approve</button>
                           <button type="button" class="btn btn-sm btn-outline-danger wd-reject"><i class="mdi mdi-close"></i> Reject</button>
                         </td>

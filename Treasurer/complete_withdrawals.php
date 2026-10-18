@@ -43,7 +43,7 @@
           <div class="fud-hero">
             <div class="fud-hero-date">Savings withdrawals</div>
             <h2><i class="mdi mdi-account-remove"></i> Complete withdrawals</h2>
-            <p>Members leaving the cooperative. They are paid all their savings after any loan or commodity they owe.
+            <p>Members leaving the cooperative. They are paid their savings after any loan or commodity they owe, less the minimum balance that stays in savings.
               Check each request, set the amount to pay (or reject with a reason), and the Chairman gives the final approval.</p>
             <div class="fud-hero-actions">
               <a href="withdrawal_endorsement.php"><i class="mdi mdi-bank-transfer-out"></i> Savings withdrawals</a>
@@ -112,7 +112,7 @@
                           <div class="<?php echo $noAccount ? 'text-danger' : 'text-muted'; ?>"><?php echo $noAccount ? 'Account number missing' : $h($r['acount_number']); ?></div></td>
                         <td style="white-space:normal">
                           <?php if ($key === 'rejected') { ?>
-                            <span class="small"><?php echo $h($r['treasurer_comment']); ?></span>
+                            <span class="small"><?php echo $r['chairman_decided_at'] ? '<strong>Chairman:</strong> ' . $h($r['chairman_comment']) : $h($r['treasurer_comment']); ?></span>
                           <?php } elseif ($open) {
                               if ($r['ob']['blockers']) { ?><span class="fud-pill no" title="<?php echo $h(implode(' ', $r['ob']['blockers'])); ?>">Guarantor / request open</span>
                               <?php } elseif ($r['ob']['total_owed'] > 0 && !$r['settle_from_savings']) { ?><span class="fud-pill no">Owes; not paying from savings</span>

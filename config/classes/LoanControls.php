@@ -395,7 +395,7 @@ class LoanControls
     }
 
     // Most a member can take out now: balance, less anything being paid from savings, less the minimum balance.
-    // $keepMinimum = false for complete withdrawals: a leaving member is paid everything that is left.
+    // Complete withdrawals keep the minimum too (decided 2026-10-18); $keepMinimum = false is no longer used.
     public static function maxWithdrawal($memberId, $alsoFromSavings = 0, $keepMinimum = true)
     {
         return max(0, round(self::savingsBalance($memberId) - $alsoFromSavings - ($keepMinimum ? self::withdrawalMinBalance() : 0), 2));
@@ -463,15 +463,29 @@ class LoanControls
         }
 
         $total = round(array_sum(array_column($owed, 'balance')), 2);
+        $minimum = self::withdrawalMinBalance();
         return [
             'blockers'   => $blockers,
             'owed'       => $owed,
             'total_owed' => $total,
-            // a leaving member is paid everything left after what they owe (no minimum balance)
+            // a leaving member is paid what is left after what they owe and the minimum balance, which stays in savings
             'can_settle' => !$blockers && $total > 0 && $savings - $total > 0.005,
-            'payout'     => max(0, round($savings - $total, 2)),
+            'min_balance' => $minimum,
+            'payout'     => max(0, round($savings - $total - $minimum, 2)),
             'can_leave'  => !$blockers && $total <= 0.005,
         ];
+    }
+
+    // What a complete withdrawal would pay the member in full (savings less what they owe less the minimum
+    // balance). Message when $amount is less than that, otherwise null. Information for the Chairman; it does not block.
+    public static function completePayoutShortError($obligations, $amount)
+    {
+        $short = round($obligations['payout'] - (float) $amount, 2);
+        if ($short > 0.005) {
+            return 'A complete withdrawal pays out everything the member is due: ₦' . number_format($obligations['payout'], 2)
+                . '. The amount set is ₦' . number_format((float) $amount, 2) . ', ₦' . number_format($short, 2) . ' less, which would stay in savings.';
+        }
+        return null;
     }
 
     // Pays everything the member owes from savings (Chairman approval of a complete withdrawal)

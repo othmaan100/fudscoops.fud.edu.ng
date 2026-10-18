@@ -44,7 +44,7 @@
 
           <?php if (!empty($info['rejected_complete']) && !$info['pending_complete']) { ?>
             <div class="fud-notice"><i class="mdi mdi-close-circle"></i>
-              <span>Your complete withdrawal request<?php echo $info['rejected_complete']['date_applied'] ? ' of ' . date('d M Y', strtotime($info['rejected_complete']['date_applied'])) : ''; ?> was rejected by the Treasurer<?php echo $info['rejected_complete']['treasurer_comment'] ? ': ' . htmlspecialchars($info['rejected_complete']['treasurer_comment']) : '.'; ?> You can apply again.</span></div>
+              <span>Your complete withdrawal request<?php echo $info['rejected_complete']['date_applied'] ? ' of ' . date('d M Y', strtotime($info['rejected_complete']['date_applied'])) : ''; ?> was rejected by the <?php echo $info['rejected_complete']['rejected_by']; ?><?php echo $info['rejected_complete']['treasurer_comment'] ? ': ' . htmlspecialchars($info['rejected_complete']['treasurer_comment']) : '.'; ?> You can apply again.</span></div>
           <?php } ?>
           <?php if ($info['pending_complete']) { ?>
             <div class="fud-notice"><i class="mdi mdi-clock-outline"></i>
@@ -55,7 +55,7 @@
               <div class="fud-section-body"><ul class="mb-0">
                 <?php foreach ($obligations['blockers'] as $b) { ?><li class="mb-1"><?php echo $h($b); ?></li><?php } ?>
                 <?php if ($owed > 0 && !$obligations['can_settle']) { ?><li>You owe ₦<?php echo number_format($owed, 2); ?> on loans or commodity. Your savings do not cover it. Repay the rest first.</li><?php } ?>
-                <?php if (!$obligations['blockers'] && $owed <= 0 && $obligations['payout'] <= 0) { ?><li>There is nothing to pay out: your savings balance is ₦<?php echo number_format($balance, 2); ?>.</li><?php } ?>
+                <?php if (!$obligations['blockers'] && $owed <= 0 && $obligations['payout'] <= 0) { ?><li>There is nothing to pay out: your savings balance is ₦<?php echo number_format($balance, 2); ?>, and ₦<?php echo number_format($obligations['min_balance'], 2); ?> must stay in savings.</li><?php } ?>
               </ul></div></div>
           <?php } else { ?>
 
@@ -109,7 +109,8 @@
                       <?php if ($owed > 0) { ?>
                         <?php foreach ($obligations['owed'] as $o) { ?><dt>Pays off <?php echo $h($o['label']); ?></dt><dd>−₦<?php echo number_format($o['balance'], 2); ?></dd><?php } ?>
                       <?php } ?>
-                        <dt class="fud-total">Paid to you (everything left)</dt><dd class="fud-total">₦<?php echo number_format($obligations['payout'], 2); ?></dd>
+                        <dt>Stays in savings (minimum)</dt><dd>−₦<?php echo number_format($obligations['min_balance'], 2); ?></dd>
+                        <dt class="fud-total">Paid to you</dt><dd class="fud-total">₦<?php echo number_format($obligations['payout'], 2); ?></dd>
                     </dl>
                     <?php if ($owed > 0) { ?>
                       <div class="custom-control custom-checkbox mb-3">

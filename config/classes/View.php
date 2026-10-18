@@ -335,8 +335,11 @@ class View{
                 ['Commodity Requests', 'mdi-cart-outline', 'approved_commodity_Request.php'],
             ],
             'Operations' => [
-                ['Loan Deduction', 'mdi-file-document-box', 'loan_deduction.php'],
+                ['Loan Deductions', 'mdi-file-document-box', 'loan_deduction.php'],
                 ['Generate Report', 'mdi-file-chart', 'reports.php'],
+            ],
+            'Settings' => [
+                ['Minimum Savings Balance', 'mdi-lock-outline', 'withdrawal_settings.php'],
             ],
             'Administration' => [
                 ['Add User', 'mdi-account-plus', 'add_user.php'],
@@ -367,6 +370,7 @@ class View{
                 ['Update Share Unit', 'mdi-chart-pie', 'manage_shareunit.php'],
                 ['Loans', 'mdi-cash-multiple', 'loans.php'],
                 ['Overdue Loans', 'mdi-alert-circle', 'overdue_loans.php'],
+                ['Loan Deductions', 'mdi-file-document-box', 'loan_deduction.php'],
             ],
             'Commodity' => [
                 ['Manage Commodity', 'mdi-cart-outline', 'ui-commodity', [

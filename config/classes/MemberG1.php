@@ -752,7 +752,7 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
             return 'The account number on this request is missing. Enter the member\'s 10-digit account number.';
         }
         $ob = LoanControls::leavingObligations($req['member_id'], $req['employee_id'], LoanControls::savingsBalance($req['member_id']));
-        if ($limit = LoanControls::withdrawalLimitError($req['member_id'], $approved_amount, $req['settle_from_savings'] ? $ob['total_owed'] : 0, false)) {
+        if ($limit = LoanControls::withdrawalLimitError($req['member_id'], $approved_amount, $req['settle_from_savings'] ? $ob['total_owed'] : 0)) {
             return $limit;
         }
 
@@ -829,7 +829,7 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
         }
         // The amount paid out cannot be more than the savings left after what is paid to loans/commodity
         if ($limit = LoanControls::withdrawalLimitError($request['member_id'], $request['approved_amount'],
-                                                         $request['settle_from_savings'] ? $obligations['total_owed'] : 0, false)) {
+                                                         $request['settle_from_savings'] ? $obligations['total_owed'] : 0)) {
             return 'Cannot approve. ' . $limit;
         }
         if ($obligations['total_owed'] > 0) {
@@ -847,10 +847,13 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
                 ->execute([':o' => $obligations['total_owed'], ':id' => $withrawals_id]);
         }
 
-        $sql = "UPDATE fudscoops_complete_withrawal SET chairman_approval = '1', date_approved = NOW() WHERE fudscoops_complete_withrawal.comp_withdrwal_id = :withrawals_id";
+        $sql = "UPDATE fudscoops_complete_withrawal SET chairman_approval = '1', date_approved = NOW(),
+                       chairman_decided_by = :by, chairman_decided_at = NOW()
+                WHERE fudscoops_complete_withrawal.comp_withdrwal_id = :withrawals_id";
     
         $stmt = $con->prepare($sql);
         $stmt->bindParam(':withrawals_id', $withrawals_id, PDO::PARAM_INT);
+        $stmt->bindValue(':by', isset($_SESSION['username']) ? $_SESSION['username'] : null);
     
         $chairmanApproveWithdrawal = $stmt->execute();
     
@@ -859,6 +862,21 @@ public function secretaryApproveRegisteration($spNo, $action, $comment) {
         } else {
             return -1;
         }
+}
+
+  // Chairman rejects a complete withdrawal awaiting them (chairman_approval -1); the reason is shown to the member,
+  // who can apply again. Returns 1 or a message.
+  public function chairmanRejectComWithdrawal($withrawals_id, $reason, $by) {
+        $reason = trim((string) $reason);
+        if ($reason === '') {
+            return 'Give the reason for rejecting; the member will see it.';
+        }
+        $con = (new DB())->getConnection();
+        $stmt = $con->prepare("UPDATE fudscoops_complete_withrawal
+                               SET chairman_approval = -1, chairman_comment = :c, chairman_decided_by = :by, chairman_decided_at = NOW()
+                               WHERE comp_withdrwal_id = :id AND chairman_approval = 0 AND approved_amount > 0");
+        $stmt->execute([':c' => $reason, ':by' => $by, ':id' => $withrawals_id]);
+        return $stmt->rowCount() ? 1 : 'This request is not awaiting the Chairman.';
 }
     
     //used in withdrawal  saving of member 

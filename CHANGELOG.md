@@ -26,6 +26,8 @@ at the top.
 | 9 | `db/2026-10-15_withdrawal_decisions.sql` | Savings withdrawals: adds `treasurer_comment`, `treasurer_decided_by`, `treasurer_decided_at`; status -1 = rejected by the Treasurer. Moves requests the Treasurer had approved but that never reached the Chairman (status 0 with an amount) to status 1. Backup `fudscoops_withrawals_backup_20261015`; undo statements in the file. Run after #8 and BEFORE uploading the code. | Applied 2026-10-15 (12 requests moved on) | Pending |
 | 10 | `db/2026-10-17_withdrawal_chairman_decisions.sql` | Savings withdrawals: adds `chairman_comment`, `chairman_decided_by`, `chairman_decided_at`; `chairman_approval` -1 = rejected by the Chairman (reason shown to the member). No changes to existing records. Undo statement in the file. Run after #9 and BEFORE uploading the code. | Applied 2026-10-17 | Pending |
 | 11 | `db/2026-10-17_complete_withdrawal_decisions.sql` | Complete withdrawals: `acount_number` changes from INT to text (10-digit numbers had been saved as 2147483647 and leading zeros dropped). Restores leading zeros (pads to 10 digits) and clears the 21 numbers saved as 2147483647, which the Treasurer re-enters when approving. Adds `treasurer_comment`, `treasurer_decided_by`, `treasurer_decided_at`; `chairman_approval` -1 = rejected by the Treasurer. Backup `fudscoops_complete_withrawal_backup_20261017`; undo statements in the file. Run after #10 and BEFORE uploading the code. | Applied 2026-10-17 (29 numbers fixed, 21 cleared) | Pending |
+| 12 | `db/2026-10-18_complete_withdrawal_chairman.sql` | Complete withdrawals: adds `chairman_comment`, `chairman_decided_by`, `chairman_decided_at` so the Chairman can reject with a reason (`chairman_approval` -1). No changes to existing records. Undo statement in the file. Run after #11 and BEFORE uploading the code. | Applied 2026-10-18 | Pending |
+| 13 | `db/2026-10-19_special_commodity.sql` | Special commodity requests: adds `fudscoops_commodity_loan_applications.request_type` ('regular' / 'special', existing rows 'regular') and the new table `fudscoops_special_commodity_items` (item, description, quantity, member's estimated price, Treasurer's price, approved quantity). No existing records change. Undo statements in the file. Run after #12 and BEFORE uploading the code. | Applied 2026-10-19 | Pending |
 
 ### Meaning of the approval columns (as of 2026-10-06)
 
@@ -76,6 +78,250 @@ and `fudscoops_shares_conversion` (`conversion_status`, `chairman_approval`): 0 
 
 ---
 
+## 2026-10-19
+
+### Chairman authorizations: detailed and bulk
+
+No database changes. Every Chairman authorization can now be done in two ways:
+- **Detailed:** open one request, see everything about it, and Authorize or Decline from that page.
+- **Bulk:** tick requests on the list (or Select all) and authorize or decline them in one action.
+
+Both go through one endpoint, `ajax/chairman_decisions.php` (Chairman only). It decides each request with
+the same method as before, and that method's checks: savings minimum, debts, account number, stage. One
+request failing does not stop the others, and the reason for each failure is listed. Declining needs a reason
+the member sees. Savings updates are the exception: they have no reason field, so a reason is optional there.
+Membership can only be authorized; its old "decline" only recorded a note and left the application waiting.
+
+| Area | Detail page | Bulk on the list |
+|---|---|---|
+| Membership | `view_proposed_member_details.php` rebuilt. It was broken: the list links with `employee_id` but the page read `member_id`. | already there |
+| Savings update | **New** `view_savings_update.php` (current and new amount, balance, recent savings); Details link on each row | already there |
+| Savings withdrawal | `view_withdrawal.php` rebuilt. It showed the Treasurer's old form; it now shows the Treasurer's amount, payment details, savings left and minimum-balance check. Details link on each row | already there |
+| Complete withdrawal | **New** `view_com_withdrawal_details.php` (savings, debts and guarantees, Treasurer's amount and full amount due, payment details) | **added**; requests that cannot be approved have the checkbox disabled |
+| Share purchase / transfer / conversion | existing pages | lists rebuilt (`config/chairman/share_list.php`). They show only what awaits the Chairman: before, purchases not yet endorsed by the Secretary, or already authorized, were listed too. Search and checkboxes added |
+| Loans | existing page | **added** on the Chairman's Loans list for loans awaiting the Chairman |
+| Commodity | existing page | **added** on the Chairman's list for requests awaiting the Chairman |
+
+| File | Change |
+|---|---|
+| `ajax/chairman_decisions.php` | **New** – single and bulk Chairman decisions |
+| `js/fud-bulk.js` | **New** – bulk bar (select all, authorize or decline selected, one reason) and detail-page buttons |
+| `config/chairman/decisions.php` | **New** – "Your decision" box for detail pages |
+| `config/chairman/share_list.php` | **New** – Chairman's share lists |
+| `Chairman/view_savings_update.php`, `Chairman/view_com_withdrawal_details.php` | **New** |
+| `Chairman/view_proposed_member_details.php`, `Chairman/view_withdrawal.php`, `Chairman/manage_share_*.php` | Rebuilt |
+| `Chairman/complete_withdrawals.php`, `Chairman/withdrawal_endorsement.php`, `Chairman/update_savings.php`, `Chairman/approved_commodity_Request.php` | Checkboxes and/or Details links |
+| `config/loans/officer_loans.php` | Chairman: checkboxes on loans awaiting authorization |
+| `config/classes/CommodityLoan.php` | `requestsTable()` takes `$bulk` (checkboxes on requests awaiting the Chairman) |
+
+### Commodity Deduction: empty and prefilled templates
+
+No database changes.
+
+- **Treasurer/commodity_deduction.php:** two downloads replace the single template link.
+  - **Empty template:** the column headings only.
+  - **Prefilled for a month:** one row for each commodity request (regular or special) due a deduction that
+    month and not yet recorded. Each row has the staff number, the month's last day, the amount due (the
+    monthly deduction, or the balance if less), the request number, and the name, commodity and balance
+    for checking.
+  - **Month:** chosen on the page (default this month), which shows how many are due and the total. A
+    month already uploaded drops out of the prefilled file.
+- **Treasurer/uploadCommodityDeduction.php:**
+  - reads an optional 4th column, Request #, so a member with two commodity loans can have a row for each;
+  - a request number that does not belong to the staff number is rejected for that row;
+  - with no number, the row goes to the member's oldest request being repaid, as before;
+  - extra columns are ignored.
+- **Tested:** a prefilled November file uploaded unchanged recorded both deductions, and downloading it
+  again then gave only the heading.
+
+### Special commodity requests: full workflow
+
+Run `db/2026-10-19_special_commodity.sql` (#13) on the live database **before** uploading this code.
+
+Members can ask for items the cooperative does not stock and repay them as a commodity loan. The old page could
+never save: it posted to `process_commodity_loan.php`, which does not exist. Special requests now follow
+the same steps as commodity requests, so they appear on the existing Treasurer, Chairman, deduction and member
+pages.
+
+1. **Request (R/special_commodity_request.php, rebuilt):**
+   - the member lists up to 20 items, each with a description, quantity and estimated price;
+   - they choose the months to repay and see an estimate with the interest;
+   - one special request can be in progress at a time;
+   - their past special requests are listed below the form.
+2. **Treasurer review (Treasurer › Commodity Requests › request):**
+   - the member's estimate is shown next to an editable unit price;
+   - the Treasurer corrects the prices, sets each quantity (0 = not approved) and the months;
+   - the flat interest is added and the request goes to the Chairman, or the Treasurer declines it with a reason.
+3. **Chairman authorization:** authorize, or decline with a reason (as for commodity).
+4. **Release:** the Treasurer records the date the items were released to the member (stage "Awaiting
+   release" until then).
+5. **Repayment:**
+   - the schedule starts automatically the month after release, at the approved monthly amount;
+   - deductions are recorded like any commodity deduction (single, or Treasurer › Commodity Deduction /
+     CSV upload);
+   - the request becomes "Fully repaid" at the total.
+
+- **Officer list:** a "Special requests" tab, and a "special" label on these rows. The Treasurer, Chairman
+  and Secretary pages accept `?stage=special` (`$stages` lists it); without it the tab showed every request.
+- **Leaving members:** special requests count toward what the member owes or has in progress.
+
+| File | Change |
+|---|---|
+| `db/2026-10-19_special_commodity.sql` | **New** – database changes (#13 above) |
+| `R/special_commodity_request.php` | Rebuilt |
+| `config/classes/CommodityLoan.php` | New `submitSpecialRequest()`, `openSpecialRequest()`, `isSpecial()`; `lines()` reads special items; `treasurerReview()` takes corrected prices; release wording, "Special requests" tab |
+| `ajax/commodity_workflow.php` | New action `submit_special`; Treasurer review passes prices |
+
+---
+
+## 2026-10-18
+
+### Member withdrawal history redesigned (R/view_all_withdrawals.php)
+
+No database changes.
+
+- **Figures:** total withdrawn, amount waiting for approval, how much the member can withdraw now (after
+  the minimum balance), and the last withdrawal paid.
+- **Tabs:** All, Approved, Pending and Rejected, with **Download CSV**.
+- **Each request shows:**
+  - its date, or "uploaded by the Treasurer" for uploaded withdrawals;
+  - the amount asked for and the amount approved;
+  - the bank account it was paid into;
+  - its stage and date: Awaiting Treasurer, Awaiting Chairman, Approved or Rejected.
+- **Rejection reasons:** a rejected request shows who rejected it and why.
+- **Complete withdrawals:** listed too, with any debts paid from savings.
+- **Fixes:**
+  - requests rejected by the Treasurer showed as "Pending";
+  - the bank showed as a number;
+  - a pending request showed ₦0.00 (only the approved amount was listed);
+  - with no member record the page sent the member to a missing page;
+  - the table plugin was loaded from a path outside the site.
+
+### Complete withdrawals: the Chairman sees when less than the full amount is paid
+
+A complete withdrawal (member leaving) pays the amount the Treasurer approves. That amount can be less than the
+full amount due (savings, less what they owe, less the minimum balance). The Chairman is shown the difference,
+which stays in savings, and can still approve it. No database changes.
+
+- **Treasurer (view_com_withdrawal_details.php):**
+  - the amount box suggests the full amount due and can be lowered;
+  - it cannot go above the full amount;
+  - a lower amount shows how much stays in savings and that the Chairman will see it.
+- **Chairman (complete_withdrawals.php):**
+  - a request below the full amount is marked "full payout ₦…";
+  - a note gives the full amount and how much would stay in savings;
+  - Approve stays available. It is disabled only for real blockers: debts not being paid from savings,
+    loans being guaranteed, more than the limit, or a missing account number.
+
+| File | Change |
+|---|---|
+| `config/classes/LoanControls.php` | New `completePayoutShortError()` (the message; it does not block) |
+| `Chairman/complete_withdrawals.php` | Shows the full payout and the difference for a lower amount |
+| `Treasurer/view_com_withdrawal_details.php` | Amount suggested at the full payout; note for a lower amount |
+
+### Chairman can set the minimum savings balance
+
+No database changes: the amount is the existing setting `withdrawal_min_balance`.
+
+**Chairman/withdrawal_settings.php (new; menu Settings › Minimum Savings Balance):**
+- Shows the current minimum and who last changed it and when.
+- Saves a new amount (0 or more, kobo allowed) after a confirmation.
+- **Live preview** as the amount is typed:
+  - how many members could not withdraw anything;
+  - the savings held back across all members;
+  - how many waiting savings and complete withdrawal requests could no longer be approved.
+
+  At ₦3,000: 181 of 1,308 members, ₦3,574,494 held back, and 22 of 41 waiting requests.
+- **Applies immediately:** every withdrawal check reads the setting, including approval of requests
+  already waiting.
+- **Treasurer:** can still change it on Savings Settings. The description there no longer says a
+  complete withdrawal pays out everything.
+
+| File | Change |
+|---|---|
+| `Chairman/withdrawal_settings.php` | **New** |
+| `config/classes/View.php` | Chairman menu: Settings › Minimum Savings Balance |
+| `Treasurer/savings_settings.php` | Description of the minimum balance corrected |
+
+### Minimum balance on complete withdrawals; Chairman pages; loan deduction history for Chairman and Secretary
+
+Run `db/2026-10-18_complete_withdrawal_chairman.sql` (#12) on the live database **before** uploading this code.
+
+**Rule change – complete withdrawals keep the minimum balance.** A leaving member is now paid their savings
+less what they owe **and** less the minimum savings balance (`withdrawal_min_balance`, now ₦3,000), which
+stays in savings. This replaces the 2026-10-14 rule that paid out everything. It is applied in:
+- `LoanControls::leavingObligations()` (the payout, and a new `min_balance`);
+- the Treasurer's and Chairman's approval checks;
+- the member's Complete Withdrawal page, which shows the amount that stays;
+- the Treasurer's request page.
+
+**Chairman/complete_withdrawals.php (redesigned):**
+- **Each request shows:**
+  - savings now, what the member owes (and whether it is paid from savings);
+  - the amount to pay and what is left in savings;
+  - the account, and the Treasurer's comment.
+- **Approve** runs the same checks as before and is disabled, with the reason shown, when a request
+  cannot be approved (owes and not paying from savings, guarantor, minimum balance, missing account).
+- **Reject** asks for a reason, which the member sees; they can apply again. The old Reject posted to a
+  placeholder address and did nothing.
+- **Recent decisions:** the Chairman's decisions from the last 30 days. Who approved and when is now recorded.
+
+**Chairman/update_savings.php (redesigned):**
+- **Each request shows** current monthly savings, the new amount, the change, and the savings balance.
+  Amounts below the minimum and requests replaced by a newer one are marked.
+- **Approve and Reject** work one by one or in bulk, by request number (they used staff numbers before).
+- **Recent decisions** for the last 30 days, with what the Treasurer did after.
+
+**Chairman/member_list.php and member_profile.php:** the Treasurer's member list and member record, now
+shared (`config/members/`).
+- The Chairman sees the same figures, filters, CSV and member record.
+- The Applicants tab authorizes applicants one by one or in bulk, as before.
+- Links the Chairman has no page for (withdrawal and overpayment details) are hidden.
+- Each loan on the member record also links to its deduction history.
+
+**Loan deduction history (Chairman/, Secretary/ and Treasurer/ loan_deduction.php):** one shared page
+(`config/loans/loan_deduction_desk.php`).
+- **By month:** the Treasurer's monthly desk. The Chairman and Secretary see it read-only (no Record
+  buttons, no upload).
+- **Yearly history:** for each month, the loans due, the amount scheduled and recorded, a progress bar,
+  and the deductions, short and missed counts. Each month opens that month.
+- **Missed vs not uploaded:** a deduction counts as missed only in a month whose deduction file was
+  uploaded for that loan type (the rule `LoanControls::overdueLoans()` uses). Otherwise it counts as "not
+  uploaded". No file has been uploaded locally for March–October 2026, so the 155 loans show as
+  "not uploaded", not missed.
+- **One loan's history:** month by month, with the amount due, deducted, balance after, and status
+  (Recorded / Short / Missed / Upcoming). The Treasurer also gets a link to record a deduction.
+- **Download:** the month's deductions as CSV, for everyone. The Treasurer's "to record" CSV is unchanged.
+- **Menus:** the Chairman's dead "Loan Deduction" link now works, and the Secretary has a new Loan
+  Deductions link.
+
+**Fixes:**
+- **Savings update endpoints:** `ajax/approved_update_savings.php`, `reject_update_savings.php` and
+  `bulk_approve_savings.php` had no login check; they now need the Secretary or Chairman.
+  `approved_update_savings.php` used `message =>` without quotes, which is a fatal error on PHP 8.
+- **Rejected savings updates:** `SavingsG1::secretaryRejectUpdateSavings()` marked **every** savings update
+  the member had ever made as rejected, including approved ones. It now rejects only the pending one.
+- **Rejections show who rejected:** on Treasurer pages and the member's page, a Chairman rejection of a
+  complete withdrawal shows as "rejected by the Chairman" with the reason.
+
+| File | Change |
+|---|---|
+| `db/2026-10-18_complete_withdrawal_chairman.sql` | **New** – database changes (#12 above) |
+| `config/classes/LoanControls.php` | Complete withdrawal payout keeps the minimum balance; `min_balance` |
+| `config/classes/MemberG1.php` | Complete withdrawal checks keep the minimum; Chairman approval records who; new `chairmanRejectComWithdrawal()` |
+| `config/classes/SavingsG1.php` | Minimum in the "nothing to pay out" message; `secretaryRejectUpdateSavings()` fixed; new `chairmanDecideSavingsUpdate()`, `savingsUpdatesAwaitingChairman()`, `savingsUpdatesRecent()` |
+| `config/classes/Dashboard.php` | Member's rejected complete withdrawal says who rejected it |
+| `config/classes/View.php` | Chairman "Loan Deductions" label; Secretary Loan Deductions link |
+| `config/loans/loan_deduction_desk.php` | **New** – shared loan deductions page (month, year history, one loan) |
+| `config/members/member_list.php`, `config/members/member_profile.php` | **New** – shared member list and record (moved from Treasurer/) |
+| `Treasurer/loan_deduction.php`, `Treasurer/member_list.php`, `Treasurer/member_profile.php` | Now load the shared pages |
+| `Chairman/loan_deduction.php`, `Chairman/member_profile.php`, `Secretary/loan_deduction.php` | **New** |
+| `Chairman/member_list.php`, `Chairman/complete_withdrawals.php`, `Chairman/update_savings.php` | Redesigned |
+| `ajax/chairman_complete_withdrawal_decision.php`, `ajax/chairman_savings_update_decision.php` | **New** – Chairman approve or reject |
+| `ajax/approved_update_savings.php`, `ajax/reject_update_savings.php`, `ajax/bulk_approve_savings.php` | Login check; PHP 8 fix |
+| `R/complete_withdrawal.php`, `Treasurer/view_com_withdrawal_details.php`, `Treasurer/complete_withdrawals.php` | Minimum balance shown; Chairman rejections shown |
+
+---
 ## 2026-10-17
 
 ### Treasurer complete withdrawal pages redesigned; account numbers repaired; Reject works

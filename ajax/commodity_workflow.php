@@ -17,6 +17,7 @@ $comment = isset($_POST['comment']) ? $_POST['comment'] : '';
 // Who may do what: 1 member, 3 Treasurer, 4 Chairman
 $roles = [
     'submit_request'      => 1,
+    'submit_special'      => 1,
     'treasurer_recommend' => 3,
     'treasurer_decline'   => 3,
     'record_supply'       => 3,
@@ -41,11 +42,18 @@ switch ($action) {
                                           isset($_POST['qty']) && is_array($_POST['qty']) ? $_POST['qty'] : [],
                                           isset($_POST['tenor']) ? $_POST['tenor'] : '');
         break;
+    case 'submit_special':
+        // items_json: [{name, desc, qty, price}, ...]
+        $memberId = $user->getMemberId($user->getEmployeeId($_SESSION['username']));
+        $items = json_decode(isset($_POST['items_json']) ? (string) $_POST['items_json'] : '[]', true);
+        echo CommodityLoan::submitSpecialRequest($memberId, is_array($items) ? $items : [], isset($_POST['tenor']) ? $_POST['tenor'] : '');
+        break;
     case 'treasurer_recommend':
     case 'treasurer_decline':
         echo CommodityLoan::treasurerReview($appId, isset($_POST['qty']) && is_array($_POST['qty']) ? $_POST['qty'] : [],
                                             isset($_POST['tenor']) ? $_POST['tenor'] : '', $comment,
-                                            $action === 'treasurer_recommend', $_SESSION['username']);
+                                            $action === 'treasurer_recommend', $_SESSION['username'],
+                                            isset($_POST['price']) && is_array($_POST['price']) ? $_POST['price'] : []);
         break;
     case 'record_supply':
         echo CommodityLoan::recordSupply($appId, isset($_POST['date']) ? $_POST['date'] : '', isset($_POST['note']) ? $_POST['note'] : '', $_SESSION['username']);

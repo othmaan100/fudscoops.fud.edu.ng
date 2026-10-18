@@ -1,5 +1,4 @@
 <?php
-session_start();
 require_once '../config/classes/DB.php';
 require_once '../config/classes/SavingsG1.php';
 
@@ -11,6 +10,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !isset($_POST['staff_nos']) || !is_
 // Auth check
 require_once '../config/classes/User.php';
 $user = new User();
+// Secretary or Chairman only (Secretary/update_savings.php, the old Chairman page)
+if (!isset($_SESSION['access_level']) || !in_array((int) $_SESSION['access_level'], [2, 4], true)) {
+    echo json_encode(['success' => false, 'message' => 'Please log in again.']);
+    exit();
+}
 
 
 $action = $_POST['action'] ?? '';

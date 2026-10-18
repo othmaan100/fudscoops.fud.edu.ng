@@ -19,6 +19,12 @@ require_once('Settings.php');
  *   5. Monthly deductions (one per month, single or CSV upload). When they reach the total the request
  *      becomes 'repaid'.
  * Supply setup (commodity names, items, schedules) stays in Commodity.php.
+ *
+ * Special requests (request_type 'special', db/2026-10-19_special_commodity.sql): items the cooperative does not
+ * stock. The member lists each item with an estimated unit price (R/special_commodity_request.php); there is no
+ * supply and no stock (commodity_supply_id 0, items in fudscoops_special_commodity_items). The Treasurer corrects
+ * the prices and approves some or all items, then the same steps follow: Chairman, release (recorded as 'supplied';
+ * deductions start the next month) and monthly repayment.
  */
 class CommodityLoan
 {
@@ -57,7 +63,7 @@ class CommodityLoan
         switch (isset($app['status']) ? $app['status'] : '') {
             case 'pending':     return 'Awaiting Treasurer';
             case 'recommended': return 'Awaiting Chairman';
-            case 'authorized':  return 'Awaiting supply';
+            case 'authorized':  return self::isSpecial($app) ? 'Awaiting release' : 'Awaiting supply';
             case 'supplied':
             case 'completed':   return 'Repaying';
             case 'repaid':      return 'Fully repaid';
@@ -66,6 +72,14 @@ class CommodityLoan
         }
         return ucfirst((string) $app['status']);
     }
+
+    public static function isSpecial($app)
+    {
+        return isset($app['request_type']) && $app['request_type'] === 'special';
+    }
+
+    // Name shown for a request: its supply, or "Special request"
+    const NAME_SQL = "COALESCE(s.commodity_name, IF(a.request_type = 'special', 'Special request', NULL)) AS commodity_name";
 
     public static function stagePill($app)
     {
@@ -363,11 +377,95 @@ class CommodityLoan
         }
     }
 
+    // ---------------------------------------------------------------- special requests
+
+    const MAX_SPECIAL_ITEMS = 20;
+
+    // The member's special request still in progress (not yet released or declined), or null
+    public static function openSpecialRequest($memberId)
+    {
+        $stmt = self::con()->prepare("SELECT * FROM fudscoops_commodity_loan_applications
+                                      WHERE member_id = :m AND request_type = 'special' AND status IN ('pending', 'recommended', 'authorized')
+                                      ORDER BY application_id DESC LIMIT 1");
+        $stmt->execute([':m' => $memberId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    // $items: [['name' => , 'desc' => , 'qty' => , 'price' => (estimated unit price)], ...]. Returns 1 or a message.
+    public static function submitSpecialRequest($memberId, $items, $tenor)
+    {
+        $con = self::con();
+        $stmt = $con->prepare("SELECT treasurer_approval, chairman_approval FROM fudscoops_member WHERE member_id = :m AND is_deleted = 0");
+        $stmt->execute([':m' => $memberId]);
+        $member = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$member || $member['treasurer_approval'] != 1 || $member['chairman_approval'] != 1) {
+            return 'Only approved members can make a special commodity request.';
+        }
+        if (self::openSpecialRequest($memberId)) {
+            return 'You already have a special request in progress. Wait until it is released or declined.';
+        }
+        $max = self::maxTenor();
+        if (!ctype_digit((string) $tenor) || (int) $tenor < 1 || (int) $tenor > $max) {
+            return 'Choose a repayment period of 1 to ' . $max . ' months.';
+        }
+        $lines = [];
+        foreach ((array) $items as $i => $item) {
+            $name = trim(strip_tags(isset($item['name']) ? (string) $item['name'] : ''));
+            $desc = trim(strip_tags(isset($item['desc']) ? (string) $item['desc'] : ''));
+            $qty = trim(isset($item['qty']) ? (string) $item['qty'] : '');
+            $price = preg_replace('/[^0-9.]/', '', isset($item['price']) ? (string) $item['price'] : '');
+            $n = $i + 1;
+            if ($name === '') {
+                return "Item $n: enter the item name.";
+            }
+            if (!ctype_digit($qty) || (int) $qty < 1) {
+                return "$name: enter a whole-number quantity of at least 1.";
+            }
+            if ($price === '' || !is_numeric($price) || (float) $price <= 0) {
+                return "$name: enter the estimated price of one item.";
+            }
+            $lines[] = [mb_substr($name, 0, 100), mb_substr($desc, 0, 255), (int) $qty, round((float) $price, 2)];
+        }
+        if (!$lines) {
+            return 'Add at least one item.';
+        }
+        if (count($lines) > self::MAX_SPECIAL_ITEMS) {
+            return 'Request at most ' . self::MAX_SPECIAL_ITEMS . ' items at a time.';
+        }
+        $total = 0;
+        foreach ($lines as $l) {
+            $total += $l[2] * $l[3];
+        }
+
+        try {
+            $con->beginTransaction();
+            $con->prepare("INSERT INTO fudscoops_commodity_loan_applications
+                               (member_id, commodity_supply_id, request_type, total_amount, requested_amount, tenor, application_date, status)
+                           VALUES (:m, 0, 'special', :t, :t2, :tenor, NOW(), 'pending')")
+                ->execute([':m' => $memberId, ':t' => $total, ':t2' => $total, ':tenor' => (int) $tenor]);
+            $appId = (int) $con->lastInsertId();
+            $insert = $con->prepare("INSERT INTO fudscoops_special_commodity_items
+                                         (application_id, item_name, description, quantity_requested, estimated_price, unit_price, quantity_approved, subtotal)
+                                     VALUES (:a, :n, :d, :q, :p, :p2, 0, :sub)");
+            foreach ($lines as $l) {
+                $insert->execute([':a' => $appId, ':n' => $l[0], ':d' => $l[1], ':q' => $l[2], ':p' => $l[3], ':p2' => $l[3], ':sub' => $l[2] * $l[3]]);
+            }
+            $con->commit();
+            return 1;
+        } catch (Exception $e) {
+            if ($con->inTransaction()) {
+                $con->rollBack();
+            }
+            error_log('Special commodity request: ' . $e->getMessage());
+            return 'Could not save the request. Please try again.';
+        }
+    }
+
     // ---------------------------------------------------------------- details
 
     public static function application($appId)
     {
-        $stmt = self::con()->prepare("SELECT a.*, s.commodity_name, e.sp_no, e.title, e.fname, e.lname, e.oname, e.phone_no,
+        $stmt = self::con()->prepare("SELECT a.*, " . self::NAME_SQL . ", e.sp_no, e.title, e.fname, e.lname, e.oname, e.phone_no,
                                              (SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_commodity_repayments r
                                                WHERE r.application_id = a.application_id) AS repaid
                                       FROM fudscoops_commodity_loan_applications a
@@ -391,6 +489,17 @@ class CommodityLoan
 
     public static function lines($appId)
     {
+        $type = self::con()->prepare("SELECT request_type FROM fudscoops_commodity_loan_applications WHERE application_id = :id");
+        $type->execute([':id' => $appId]);
+        if ($type->fetchColumn() === 'special') {
+            // Same keys as a supply line; no supply item, so no stock (commodity_supply_item_id null)
+            $stmt = self::con()->prepare("SELECT special_item_id AS application_item_id, application_id, NULL AS commodity_supply_item_id,
+                                                 quantity_requested, quantity_approved, unit_price, estimated_price, subtotal,
+                                                 item_name AS commodity_item, COALESCE(description, '') AS commodity_description, 0 AS remaining_quantity
+                                          FROM fudscoops_special_commodity_items WHERE application_id = :id ORDER BY special_item_id");
+            $stmt->execute([':id' => $appId]);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
         $stmt = self::con()->prepare("SELECT li.*, ci.commodity_item, ci.commodity_description, si.remaining_quantity
                                       FROM fudscoops_commodity_loan_application_items li
                                       JOIN fudscoops_commodity_supply_items si ON si.commodity_supply_item_id = li.commodity_supply_item_id
@@ -408,6 +517,9 @@ class CommodityLoan
 
     private static function changeStock($con, $supplyItemId, $delta)
     {
+        if ($supplyItemId === null) { // special request item: not from stock
+            return true;
+        }
         if ($delta < 0) { // take more from stock
             $stmt = $con->prepare("UPDATE fudscoops_commodity_supply_items SET remaining_quantity = remaining_quantity - :q
                                    WHERE commodity_supply_item_id = :i AND remaining_quantity >= :q2");
@@ -430,8 +542,9 @@ class CommodityLoan
 
     // ---------------------------------------------------------------- Treasurer and Chairman
 
-    // $quantities: [application_item_id => quantity]
-    public static function treasurerReview($appId, $quantities, $tenor, $comment, $recommend, $by)
+    // $quantities: [application_item_id => quantity]. $prices: [application_item_id => unit price], special requests
+    // only (the Treasurer corrects the member's estimates); supply items keep the supply price.
+    public static function treasurerReview($appId, $quantities, $tenor, $comment, $recommend, $by, $prices = [])
     {
         $con = self::con();
         try {
@@ -469,8 +582,12 @@ class CommodityLoan
                 return 'Choose a repayment period of 1 to ' . $max . ' months.';
             }
             $total = 0;
-            $update = $con->prepare("UPDATE fudscoops_commodity_loan_application_items SET quantity_approved = :q, subtotal = :s
-                                     WHERE application_item_id = :id");
+            $special = self::isSpecial($app);
+            $update = $special
+                ? $con->prepare("UPDATE fudscoops_special_commodity_items SET quantity_approved = :q, unit_price = :p, subtotal = :s
+                                 WHERE special_item_id = :id AND application_id = :a")
+                : $con->prepare("UPDATE fudscoops_commodity_loan_application_items SET quantity_approved = :q, subtotal = :s
+                                 WHERE application_item_id = :id");
             foreach ($lines as $line) {
                 $key = $line['application_item_id'];
                 $qty = isset($quantities[$key]) ? trim((string) $quantities[$key]) : '';
@@ -479,6 +596,17 @@ class CommodityLoan
                     return 'Enter a quantity from 0 to ' . $line['quantity_requested'] . ' for ' . $line['commodity_item'] . '.';
                 }
                 $qty = (int) $qty;
+                if ($special) {
+                    $price = preg_replace('/[^0-9.]/', '', isset($prices[$key]) ? (string) $prices[$key] : (string) $line['unit_price']);
+                    if ($price === '' || !is_numeric($price) || ((float) $price <= 0 && $qty > 0)) {
+                        $con->rollBack();
+                        return 'Enter the unit price of ' . $line['commodity_item'] . '.';
+                    }
+                    $price = round((float) $price, 2);
+                    $update->execute([':q' => $qty, ':p' => $price, ':s' => $qty * $price, ':id' => $key, ':a' => $appId]);
+                    $total += $qty * $price;
+                    continue;
+                }
                 if (!self::changeStock($con, $line['commodity_supply_item_id'], self::reserved($app, $line) - $qty)) {
                     $con->rollBack();
                     return 'Not enough ' . $line['commodity_item'] . ' left in this supply for ' . $qty . '.';
@@ -576,7 +704,7 @@ class CommodityLoan
                                WHERE application_id = :id AND status = 'authorized' AND chairman_approval = 1");
         $stmt->execute([':d' => $date, ':by' => $by, ':n' => trim((string) $note), ':start' => $start, ':id' => $appId]);
         if (!$stmt->rowCount()) {
-            return 'Only requests the Chairman has authorized can be recorded as supplied.';
+            return 'Only requests the Chairman has authorized can be recorded as supplied or released.';
         }
         $con->prepare("UPDATE fudscoops_commodity_loan_application_items SET disbursed_quantity = quantity_approved WHERE application_id = :id")
             ->execute([':id' => $appId]);
@@ -659,17 +787,20 @@ class CommodityLoan
 
     // ---------------------------------------------------------------- lists
 
-    // Officer list. $stage: '' (all), or a status
-    public static function requestsTable($stage = '', $tabs = true)
+    // Officer list. $stage: '' (all), a status, or 'special'. $bulk: a checkbox on each request awaiting the Chairman
+    // (Chairman's list; js/fud-bulk.js authorizes the ticked ones through ajax/chairman_decisions.php).
+    public static function requestsTable($stage = '', $tabs = true, $bulk = false)
     {
-        $sql = "SELECT a.*, s.commodity_name, e.sp_no, e.title, e.fname, e.lname, e.oname,
+        $sql = "SELECT a.*, " . self::NAME_SQL . ", e.sp_no, e.title, e.fname, e.lname, e.oname,
                        (SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_commodity_repayments r WHERE r.application_id = a.application_id) AS repaid
                 FROM fudscoops_commodity_loan_applications a
                 LEFT JOIN fudscoops_commodity_supply s ON s.commodity_name_id = a.commodity_supply_id
                 LEFT JOIN fudscoops_member m ON m.member_id = a.member_id
                 LEFT JOIN employee e ON e.employee_id = m.employee_id";
         $params = [];
-        if ($stage !== '') {
+        if ($stage === 'special') {
+            $sql .= " WHERE a.request_type = 'special'";
+        } elseif ($stage !== '') {
             $sql .= " WHERE a.status = :st";
             $params[':st'] = $stage;
         }
@@ -681,11 +812,12 @@ class CommodityLoan
         foreach (self::con()->query("SELECT status, COUNT(*) n FROM fudscoops_commodity_loan_applications GROUP BY status")->fetchAll(PDO::FETCH_ASSOC) as $c) {
             $counts[$c['status']] = (int) $c['n'];
         }
+        $specials = (int) self::con()->query("SELECT COUNT(*) FROM fudscoops_commodity_loan_applications WHERE request_type = 'special'")->fetchColumn();
         $tabList = ['' => 'All', 'pending' => 'Awaiting Treasurer', 'recommended' => 'Awaiting Chairman', 'authorized' => 'Awaiting supply',
-                 'supplied' => 'Repaying', 'repaid' => 'Fully repaid', 'declined' => 'Declined'];
+                 'supplied' => 'Repaying', 'repaid' => 'Fully repaid', 'declined' => 'Declined', 'special' => 'Special requests'];
         $html = $tabs ? '<div class="fud-tabs">' : '';
         foreach ($tabs ? $tabList : [] as $key => $label) {
-            $n = $key === '' ? array_sum($counts) : (isset($counts[$key]) ? $counts[$key] : 0);
+            $n = $key === '' ? array_sum($counts) : ($key === 'special' ? $specials : (isset($counts[$key]) ? $counts[$key] : 0));
             $html .= '<a class="' . ($stage === $key ? 'active' : '') . '" href="?stage=' . $key . '">' . $label . ' <span>' . $n . '</span></a>';
         }
         $html .= $tabs ? '</div>' : '';
@@ -693,14 +825,21 @@ class CommodityLoan
         if (!$rows) {
             return $html . '<p class="fud-empty">No commodity requests here.</p>';
         }
-        $html .= '<div class="table-responsive"><table class="table fud-table"><thead><tr><th>#</th><th>Member</th><th>Supply</th><th>Requested</th>
+        $bulk = $bulk && count(array_filter($rows, function ($r) { return $r['status'] === 'recommended'; })) > 0;
+        $html .= '<div class="table-responsive"' . ($bulk ? ' data-bulk="commodity"' : '') . '><table class="table fud-table"><thead><tr>'
+                . ($bulk ? '<th style="width:28px"><input type="checkbox" class="bulk-all" title="Select all awaiting you"></th>' : '') . '<th>#</th><th>Member</th><th>Supply</th><th>Requested</th>
                   <th class="num">Items (₦)</th><th class="num">To repay (₦)</th><th class="num">Balance (₦)</th><th>Stage</th><th></th></tr></thead><tbody>';
         foreach ($rows as $r) {
             $payable = self::payable($r);
             $repaying = in_array($r['status'], ['supplied', 'repaid'], true);
-            $html .= '<tr><td>' . (int) $r['application_id'] . '</td>
+            $check = '';
+            if ($bulk) {
+                $check = '<td>' . ($r['status'] === 'recommended' ? '<input type="checkbox" class="bulk-check" value="' . (int) $r['application_id'] . '" data-label="'
+                       . self::h(trim($r['fname'] . ' ' . $r['lname']) . ' (' . $r['sp_no'] . ') – ' . $r['commodity_name'] . ' #' . $r['application_id'] . ', ' . self::money($payable)) . '">' : '') . '</td>';
+            }
+            $html .= '<tr>' . $check . '<td>' . (int) $r['application_id'] . '</td>
                 <td>' . self::h(trim($r['fname'] . ' ' . $r['lname'])) . '<div class="text-muted small">' . self::h($r['sp_no']) . '</div></td>
-                <td>' . self::h($r['commodity_name']) . '</td>
+                <td>' . self::h($r['commodity_name']) . (self::isSpecial($r) ? ' <span class="fud-pill wait">special</span>' : '') . '</td>
                 <td>' . date('d/m/Y', strtotime($r['application_date'])) . '</td>
                 <td class="num">' . number_format($r['total_amount'], 2) . '</td>
                 <td class="num">' . ($r['total_payable'] !== null ? number_format($payable, 2) : '–') . '</td>
@@ -713,7 +852,7 @@ class CommodityLoan
 
     public static function memberRequests($memberId)
     {
-        $stmt = self::con()->prepare("SELECT a.*, s.commodity_name,
+        $stmt = self::con()->prepare("SELECT a.*, " . self::NAME_SQL . ",
                                              (SELECT COALESCE(SUM(r.amount_paid), 0) FROM fudscoops_commodity_repayments r WHERE r.application_id = a.application_id) AS repaid
                                       FROM fudscoops_commodity_loan_applications a
                                       LEFT JOIN fudscoops_commodity_supply s ON s.commodity_name_id = a.commodity_supply_id
@@ -747,9 +886,11 @@ class CommodityLoan
         $rate = $app['total_payable'] !== null ? (float) $app['interest_rate'] : self::interestRate();
         $tenor = (int) ($app['tenor'] ?: self::maxTenor());
         $treasurerEdits = $role === 'treasurer' && in_array($status, ['pending', 'recommended'], true) && $app['chairman_approval'] == 0;
+        $special = self::isSpecial($app);
+        $supplied = $special ? 'Released' : 'Supplied';
 
         // progress
-        $steps = ['Requested', 'Treasurer', 'Chairman', 'Supplied', 'Repaid'];
+        $steps = ['Requested', 'Treasurer', 'Chairman', $supplied, 'Repaid'];
         $reached = ['pending' => 1, 'recommended' => 2, 'authorized' => 3, 'supplied' => 4, 'completed' => 4, 'repaid' => 5];
         $done = isset($reached[$status]) ? $reached[$status] : 0;
         $back = $role === 'chairman' ? 'approved_commodity_Request.php' : 'view_commodity_request.php';
@@ -757,7 +898,7 @@ class CommodityLoan
         <div class="fud-dash fud-commodity">
           <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
             <div>
-              <h3 class="mb-1">Commodity request #<?php echo (int) $app['application_id']; ?> <?php echo self::stagePill($app); ?></h3>
+              <h3 class="mb-1"><?php echo $special ? 'Special commodity request' : 'Commodity request'; ?> #<?php echo (int) $app['application_id']; ?> <?php echo self::stagePill($app); ?></h3>
               <div class="text-muted"><?php echo $h($app['commodity_name']); ?> · requested <?php echo date('d/m/Y', strtotime($app['application_date'])); ?></div>
             </div>
             <a href="<?php echo $back; ?>" class="btn btn-light btn-sm"><i class="mdi mdi-arrow-left"></i> All requests</a>
@@ -802,7 +943,7 @@ class CommodityLoan
                   <form id="commodityReview">
                   <div class="table-responsive">
                     <table class="table fud-table">
-                      <thead><tr><th>Item</th><th class="num">Unit price</th><th class="num">Requested</th>
+                      <thead><tr><th>Item</th><?php if ($special) { ?><th class="num">Member's estimate</th><?php } ?><th class="num">Unit price</th><th class="num">Requested</th>
                         <th class="num"><?php echo $treasurerEdits ? 'Approve' : 'Approved'; ?></th><th class="num">Amount</th></tr></thead>
                       <tbody>
                       <?php foreach ($lines as $line) {
@@ -810,7 +951,13 @@ class CommodityLoan
                           $extra = (int) $line['remaining_quantity']; ?>
                         <tr>
                           <td><?php echo $h($line['commodity_item']); ?><?php if (strcasecmp(trim($line['commodity_description']), trim($line['commodity_item'])) !== 0) { ?><div class="text-muted small"><?php echo $h($line['commodity_description']); ?></div><?php } ?></td>
-                          <td class="num"><?php echo number_format($line['unit_price'], 2); ?></td>
+                          <?php if ($special) { ?><td class="num text-muted"><?php echo number_format($line['estimated_price'], 2); ?></td><?php } ?>
+                          <td class="num"><?php if ($special && $treasurerEdits) { ?>
+                              <input type="text" inputmode="decimal" class="form-control form-control-sm fud-price" style="width:120px;margin-left:auto;text-align:right"
+                                     name="price[<?php echo (int) $line['application_item_id']; ?>]" value="<?php echo number_format($line['unit_price'], 2, '.', ''); ?>">
+                            <?php } else { echo number_format($line['unit_price'], 2);
+                                if ($special && $reviewed && abs($line['unit_price'] - $line['estimated_price']) > 0.005) { ?><div class="small text-muted">corrected</div><?php }
+                            } ?></td>
                           <td class="num"><?php echo (int) $line['quantity_requested']; ?></td>
                           <td class="num">
                             <?php if ($treasurerEdits) { ?>
@@ -841,6 +988,7 @@ class CommodityLoan
                         <textarea class="form-control" id="comment" name="comment" rows="2"><?php echo $h($app['treasurer_comment']); ?></textarea>
                       </div>
                     </div>
+                    <?php if ($special) { ?><p class="small text-muted mb-2">These items are not in stock: correct each unit price to what the cooperative will pay, and set the quantity to 0 for any item you do not approve.</p><?php } ?>
                     <div class="fud-notice info" id="reviewPreview" data-rate="<?php echo self::interestRate(); ?>"></div>
                     <button type="button" class="btn btn-primary" data-action="treasurer_recommend"><i class="mdi mdi-check"></i> Send to the Chairman</button>
                     <button type="button" class="btn btn-outline-danger" data-action="treasurer_decline"><i class="mdi mdi-close"></i> Decline</button>
@@ -892,23 +1040,23 @@ class CommodityLoan
                 </div></div>
               <?php } elseif ($role === 'chairman' && $status === 'authorized') { ?>
                 <div class="fud-section"><div class="fud-section-body">
-                  <p class="mb-2">Authorized; waiting for the Treasurer to record the supply.</p>
+                  <p class="mb-2">Authorized; waiting for the Treasurer to <?php echo $special ? 'release the items' : 'record the supply'; ?>.</p>
                   <button type="button" class="btn btn-outline-secondary btn-block" data-action="chairman_return"><i class="mdi mdi-undo"></i> Return to the Treasurer</button>
                 </div></div>
               <?php } elseif ($role === 'treasurer' && $status === 'authorized') { ?>
-                <div class="fud-section"><div class="fud-section-head"><h5>Record supply</h5></div><div class="fud-section-body">
+                <div class="fud-section"><div class="fud-section-head"><h5><?php echo $special ? 'Release items' : 'Record supply'; ?></h5></div><div class="fud-section-body">
                   <form id="supplyForm">
-                    <div class="form-group"><label for="supplyDate">Date supplied</label>
+                    <div class="form-group"><label for="supplyDate">Date <?php echo strtolower($supplied); ?></label>
                       <input type="date" class="form-control" id="supplyDate" name="date" value="<?php echo date('Y-m-d'); ?>" max="<?php echo date('Y-m-d'); ?>" required></div>
                     <div class="form-group"><label for="supplyNote">Note <small class="text-muted">(optional)</small></label>
                       <input type="text" class="form-control" id="supplyNote" name="note" maxlength="255" placeholder="e.g. collected at the store"></div>
-                    <button type="button" class="btn btn-primary btn-block" data-action="record_supply"><i class="mdi mdi-truck"></i> Items supplied</button>
+                    <button type="button" class="btn btn-primary btn-block" data-action="record_supply"><i class="mdi mdi-truck"></i> Items <?php echo strtolower($supplied); ?></button>
                     <small class="text-muted d-block mt-2">Deductions start the month after this date.</small>
                   </form>
                 </div></div>
               <?php } elseif ($role === 'member' && in_array($status, ['pending', 'recommended', 'authorized'], true)) { ?>
                 <div class="fud-notice info"><i class="mdi mdi-information-outline"></i><span>Your request is with the
-                  <?php echo $status === 'pending' ? 'Treasurer' : ($status === 'recommended' ? 'Chairman' : 'store for supply'); ?>.</span></div>
+                  <?php echo $status === 'pending' ? 'Treasurer' : ($status === 'recommended' ? 'Chairman' : ($special ? 'Treasurer to release the items' : 'store for supply')); ?>.</span></div>
               <?php } ?>
 
               <div class="fud-section"><div class="fud-section-head"><h5>Decisions</h5></div><div class="fud-section-body">
@@ -917,7 +1065,7 @@ class CommodityLoan
                   <?php if ($app['treasurer_comment'] !== null && $app['treasurer_comment'] !== '') { ?><dd class="fud-wide">"<?php echo $h($app['treasurer_comment']); ?>"</dd><?php } ?>
                   <dt>Chairman</dt><dd><?php echo $app['chairman_date'] ? date('d/m/Y', strtotime($app['chairman_date'])) . ($app['chairman_approval'] == 1 ? ' · authorized' : ($app['chairman_approval'] == -1 ? ' · declined' : '')) : '–'; ?></dd>
                   <?php if ($app['chairman_comment'] !== null && $app['chairman_comment'] !== '') { ?><dd class="fud-wide">"<?php echo $h($app['chairman_comment']); ?>"</dd><?php } ?>
-                  <dt>Supplied</dt><dd><?php echo ($app['disbursement_date'] && substr($app['disbursement_date'], 0, 4) !== '0000') ? date('d/m/Y', strtotime($app['disbursement_date'])) : '–'; ?></dd>
+                  <dt><?php echo $supplied; ?></dt><dd><?php echo ($app['disbursement_date'] && substr($app['disbursement_date'], 0, 4) !== '0000') ? date('d/m/Y', strtotime($app['disbursement_date'])) : '–'; ?></dd>
                   <?php if ($app['supply_note']) { ?><dd class="fud-wide"><?php echo $h($app['supply_note']); ?></dd><?php } ?>
                   <?php if ($app['repaid_date']) { ?><dt>Fully repaid</dt><dd><?php echo date('d/m/Y', strtotime($app['repaid_date'])); ?></dd><?php } ?>
                 </dl>
@@ -935,7 +1083,9 @@ class CommodityLoan
                 if (!preview) { return; }
                 var total = 0;
                 document.querySelectorAll('.fud-qty').forEach(function (input) {
-                    var line = (parseInt(input.value, 10) || 0) * parseFloat(input.dataset.price);
+                    var priceInput = input.closest('tr').querySelector('.fud-price');
+                    var price = priceInput ? (parseFloat(priceInput.value.replace(/[^0-9.]/g, '')) || 0) : parseFloat(input.dataset.price);
+                    var line = (parseInt(input.value, 10) || 0) * price;
                     input.closest('tr').querySelector('.fud-line-total').textContent = line.toLocaleString('en-NG', { minimumFractionDigits: 2 });
                     total += line;
                 });
@@ -945,13 +1095,13 @@ class CommodityLoan
                     + ' = <strong>' + money(total + interest) + '</strong>: ' + money(Math.round((total + interest) / months * 100) / 100)
                     + ' a month for ' + months + ' month(s).</span>';
             }
-            document.querySelectorAll('.fud-qty, #tenor').forEach(function (el) { el.addEventListener('input', updatePreview); el.addEventListener('change', updatePreview); });
+            document.querySelectorAll('.fud-qty, .fud-price, #tenor').forEach(function (el) { el.addEventListener('input', updatePreview); el.addEventListener('change', updatePreview); });
             updatePreview();
 
             var confirmText = {
                 treasurer_recommend: 'Send these quantities to the Chairman?', treasurer_decline: 'Decline this request? The reserved items go back to the supply.',
                 chairman_authorize: 'Authorize this request?', chairman_decline: 'Decline this request?',
-                chairman_return: 'Return this request to the Treasurer?', record_supply: 'Record that the items were supplied?',
+                chairman_return: 'Return this request to the Treasurer?', record_supply: <?php echo json_encode($special ? 'Record that the items were released to the member? Deductions start the following month.' : 'Record that the items were supplied?'); ?>,
                 save_repayment: 'Record this deduction?'
             };
             document.querySelectorAll('.fud-commodity [data-action]').forEach(function (btn) {

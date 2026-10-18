@@ -1,6 +1,7 @@
 <?php
 // Commodity deduction CSV upload (Treasurer/commodity_deduction.php).
-// Columns: Staff Number, Repayment Month (mm/dd/yyyy), Amount Deducted (blank = the monthly deduction).
+// Columns: Staff Number, Repayment Month (mm/dd/yyyy), Amount Deducted (blank = the monthly deduction),
+// Request # (optional: which request; blank = the member's oldest being repaid). Further columns are ignored.
 require_once '../config/classes/DB.php';
 require_once '../config/classes/User.php';
 require_once '../config/classes/CommodityLoan.php';
@@ -33,6 +34,7 @@ while (($data = fgetcsv($handle, 1000, ',')) !== false) {
     $spNo = trim(isset($data[0]) ? $data[0] : '');
     $monthText = trim(isset($data[1]) ? $data[1] : '');
     $amountText = trim(isset($data[2]) ? $data[2] : '');
+    $requestText = trim(isset($data[3]) ? $data[3] : ''); // optional Request # (prefilled file); later columns are ignored
     if ($spNo === '' && $monthText === '') {
         continue;
     }
@@ -41,7 +43,10 @@ while (($data = fgetcsv($handle, 1000, ',')) !== false) {
     $amount = '';
     if (count($parts) !== 3 || !checkdate((int) $parts[0], (int) $parts[1], (int) $parts[2])) {
         $status = 'Invalid date (use mm/dd/yyyy)';
-    } elseif (!($appId = CommodityLoan::openRequestForStaff($spNo))) {
+    } elseif ($requestText !== '' && (!ctype_digit($requestText) || !($app = CommodityLoan::application((int) $requestText))
+                                      || strcasecmp(trim($app['sp_no']), $spNo) !== 0)) {
+        $status = 'Request #' . $requestText . ' does not belong to this staff number';
+    } elseif (!($appId = $requestText !== '' ? (int) $requestText : CommodityLoan::openRequestForStaff($spNo))) {
         $status = 'No commodity being repaid by this staff number';
     } else {
         $app = CommodityLoan::application($appId);

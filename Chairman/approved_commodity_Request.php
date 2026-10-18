@@ -3,12 +3,13 @@
     require_once('../config/classes/View.php');
     require_once('../config/classes/User.php');
     require_once('../config/classes/CommodityLoan.php');
+    require_once('../config/chairman/decisions.php');
     $view = new View();
     $user = new User();
     if (!User::is_authenticated('../auth/') || !User::isChairman('../auth/logout.php')) {
         exit();
     }
-    $stages = ['', 'pending', 'recommended', 'authorized', 'supplied', 'repaid', 'declined'];
+    $stages = ['', 'pending', 'recommended', 'authorized', 'supplied', 'repaid', 'declined', 'special'];
     $stage = isset($_GET['stage']) && in_array($_GET['stage'], $stages, true) ? $_GET['stage'] : '';
 
     echo $view->subHeader('../');
@@ -22,11 +23,12 @@
             <div class="fud-hero">
               <div class="fud-hero-date">Commodity</div>
               <h2><i class="mdi mdi-cart-outline"></i> Commodity Requests</h2>
-              <p>Authorize the quantities the Treasurer has fixed.</p>
+              <p>Authorize the quantities the Treasurer has fixed: open a request to decide it, or tick several awaiting you and authorize them together.</p>
             </div>
             <div class="fud-section"><div class="fud-section-body">
-              <?php echo CommodityLoan::requestsTable($stage); ?>
+              <?php echo CommodityLoan::requestsTable($stage, true, true); ?>
             </div></div>
           </div>
         </div>
         <?php echo $view->subFooter('../'); ?>
+        <?php echo chairmanBulkScript(); ?>

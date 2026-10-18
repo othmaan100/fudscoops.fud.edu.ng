@@ -281,9 +281,13 @@ class Dashboard{
             'pending_complete' => (int) $this->value("SELECT COUNT(*) FROM fudscoops_complete_withrawal WHERE employee_id = :e AND chairman_approval = 0 AND COALESCE(complete_withrawal_is_deleted, 0) = 0", [':e' => $employeeId]) > 0,
             'target' => $target->fetch(PDO::FETCH_ASSOC) ?: null,
             // A complete withdrawal the Treasurer rejected in the last 60 days, with the reason
-            'rejected_complete' => $this->row("SELECT treasurer_comment, treasurer_decided_at, date_applied FROM fudscoops_complete_withrawal
-                                               WHERE employee_id = :e AND chairman_approval = -1 AND COALESCE(complete_withrawal_is_deleted, 0) = 0
-                                                 AND treasurer_decided_at >= NOW() - INTERVAL 60 DAY ORDER BY treasurer_decided_at DESC LIMIT 1", [':e' => $employeeId]),
+            'rejected_complete' => $this->row("SELECT reason AS treasurer_comment, rejected_by, decided_at, date_applied FROM (
+                                                 SELECT COALESCE(chairman_comment, treasurer_comment) AS reason,
+                                                        IF(chairman_decided_at IS NOT NULL, 'Chairman', 'Treasurer') AS rejected_by,
+                                                        COALESCE(chairman_decided_at, treasurer_decided_at) AS decided_at, date_applied
+                                                 FROM fudscoops_complete_withrawal
+                                                 WHERE employee_id = :e AND chairman_approval = -1 AND COALESCE(complete_withrawal_is_deleted, 0) = 0) r
+                                               WHERE decided_at >= NOW() - INTERVAL 60 DAY ORDER BY decided_at DESC LIMIT 1", [':e' => $employeeId]),
         ];
     }
 

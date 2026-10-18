@@ -8,7 +8,7 @@
     if (!User::is_authenticated('../auth/') || !User::isBur('../auth/logout.php')) {
         exit();
     }
-    $stages = ['', 'pending', 'recommended', 'authorized', 'supplied', 'repaid', 'declined'];
+    $stages = ['', 'pending', 'recommended', 'authorized', 'supplied', 'repaid', 'declined', 'special'];
     $stage = isset($_GET['stage']) && in_array($_GET['stage'], $stages, true) ? $_GET['stage'] : '';
 
     echo $view->subHeader('../');

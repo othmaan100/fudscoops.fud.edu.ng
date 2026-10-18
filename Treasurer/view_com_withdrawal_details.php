@@ -37,14 +37,16 @@
         if ((int) $w['chairman_approval'] === 1) {
             $stage = ['Approved', 'ok'];
         } elseif ((int) $w['chairman_approval'] === -1) {
-            $stage = ['Rejected', 'no'];
+            $stage = [$w['chairman_decided_at'] ? 'Rejected by Chairman' : 'Rejected', 'no'];
         } elseif ((float) $w['approved_amount'] > 0) {
             $stage = ['Awaiting Chairman', 'wait'];
         } else {
             $stage = ['Awaiting Treasurer', 'wait'];
         }
         $canDecide = (int) $w['chairman_approval'] === 0;
+        // The Treasurer may set less than the full amount due; the Chairman is shown the difference
         $suggested = (float) $w['approved_amount'] > 0 ? (float) $w['approved_amount'] : $ob['payout'];
+        $shortSet = (float) $w['approved_amount'] > 0 ? LoanControls::completePayoutShortError($ob, $w['approved_amount']) : null;
         // Payslips for the last three months of this year (slip.php only serves the current year)
         $payslips = [];
         for ($k = 1; $k <= 3; $k++) {
@@ -96,7 +98,7 @@
             <div class="fud-stat"><div class="fud-stat-icon fud-blue"><i class="mdi mdi-bank-transfer-out"></i></div>
               <div><div class="fud-stat-label"><?php echo (float) $w['approved_amount'] > 0 ? 'Amount approved' : 'To pay out'; ?></div>
                 <div class="fud-stat-value"><?php echo $money((float) $w['approved_amount'] > 0 ? $w['approved_amount'] : $ob['payout']); ?></div>
-                <div class="fud-stat-sub">savings go to zero</div></div></div>
+                <div class="fud-stat-sub"><?php echo $money($ob['min_balance']); ?> stays in savings</div></div></div>
           </div>
 
           <?php if ($canDecide) { ?>
@@ -107,7 +109,7 @@
               <div class="fud-notice"><i class="mdi mdi-alert-circle"></i><span>The member owes <?php echo $money($ob['total_owed']); ?> and did not choose to pay it from savings. The Chairman cannot approve until it is repaid; you can reject the request with that reason.</span></div>
             <?php } ?>
             <?php if (!$ob['blockers'] && !$owesUnpaid && $ob['payout'] <= 0) { ?>
-              <div class="fud-notice"><i class="mdi mdi-alert-circle"></i><span>There is nothing to pay out: the savings balance is <?php echo $money($balance); ?><?php echo $ob['total_owed'] > 0 ? ' and the member owes ' . $money($ob['total_owed']) : ''; ?>. Reject the request with that reason.</span></div>
+              <div class="fud-notice"><i class="mdi mdi-alert-circle"></i><span>There is nothing to pay out: the savings balance is <?php echo $money($balance); ?><?php echo $ob['total_owed'] > 0 ? ', the member owes ' . $money($ob['total_owed']) : ''; ?>, and <?php echo $money($ob['min_balance']); ?> must stay in savings. Reject the request with that reason.</span></div>
             <?php } ?>
             <?php if ($noAccount) { ?>
               <div class="fud-notice"><i class="mdi mdi-alert-circle"></i><span>The account number on this request was lost (it was too long for the old database column). Confirm it with the member and enter it below before approving.</span></div>
@@ -214,7 +216,8 @@
                           <div class="input-group-prepend"><span class="input-group-text">₦</span></div>
                           <input type="number" class="form-control" id="cwAmount" name="amount" min="0.01" step="0.01" max="<?php echo $ob['payout']; ?>" value="<?php echo $suggested > 0 ? $suggested : ''; ?>">
                         </div>
-                        <small class="text-muted">Up to <?php echo $money($ob['payout']); ?>: the savings balance<?php echo $ob['total_owed'] > 0 ? ' less ' . $money($ob['total_owed']) . ' owed' : ''; ?>. No minimum balance stays.</small>
+                        <?php if ($shortSet) { ?><div class="small mb-1" style="color:#8a5d00"><i class="mdi mdi-information-outline"></i> You set <?php echo $money($w['approved_amount']); ?>, <?php echo $money($ob['payout'] - $w['approved_amount']); ?> less than the full amount; the difference stays in savings. The Chairman sees this.</div><?php } ?>
+                        <small class="text-muted">Up to the full amount due, <?php echo $money($ob['payout']); ?>: the savings balance<?php echo $ob['total_owed'] > 0 ? ' less ' . $money($ob['total_owed']) . ' owed' : ''; ?>, less the <?php echo $money($ob['min_balance']); ?> that must stay in savings.</small>
                       </div>
                       <?php if ($noAccount) { ?>
                         <div class="form-group">
@@ -235,14 +238,15 @@
                       <span>Approved for <?php echo $money($w['approved_amount']); ?><?php echo $w['date_approved'] ? ' on ' . date('d M Y', strtotime($w['date_approved'])) : ''; ?><?php echo $w['settled_at'] && $w['amount_owed'] > 0 ? '; ' . $money($w['amount_owed']) . ' paid to loans/commodity from savings' : ''; ?>.</span></div>
                   <?php } else { ?>
                     <div class="fud-notice mb-0"><i class="mdi mdi-close-circle"></i>
-                      <span>Rejected<?php echo $w['treasurer_decided_at'] ? ' on ' . date('d M Y', strtotime($w['treasurer_decided_at'])) : ''; ?><?php echo $w['treasurer_comment'] ? ': ' . $h($w['treasurer_comment']) : '.'; ?></span></div>
+                      <?php if ($w['chairman_decided_at']) { ?><span>Rejected by the Chairman on <?php echo date('d M Y', strtotime($w['chairman_decided_at'])); ?><?php echo $w['chairman_comment'] ? ': ' . $h($w['chairman_comment']) : '.'; ?></span>
+                      <?php } else { ?><span>Rejected<?php echo $w['treasurer_decided_at'] ? ' on ' . date('d M Y', strtotime($w['treasurer_decided_at'])) : ''; ?><?php echo $w['treasurer_comment'] ? ': ' . $h($w['treasurer_comment']) : '.'; ?></span><?php } ?></div>
                   <?php } ?>
                   <?php if (!$canDecide && $w['treasurer_decided_by']) { ?><p class="small text-muted mt-2 mb-0">Treasurer decision by <?php echo $h($w['treasurer_decided_by']); ?>.</p><?php } ?>
                   <div class="fud-next">
                     <div class="fud-next-title">Next steps</div>
                     <ol><li>You set the amount to pay (or reject with a reason)</li>
                       <li>The Chairman approves it<?php echo $ob['total_owed'] > 0 && $w['settle_from_savings'] ? ', and what the member owes is paid from savings' : ''; ?></li>
-                      <li>The money is paid into the account above and the savings go to zero</li></ol>
+                      <li>The money is paid into the account above; <?php echo $money($ob['min_balance']); ?> stays in savings</li></ol>
                   </div>
                 </div>
               </div>

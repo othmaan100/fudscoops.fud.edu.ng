@@ -3,6 +3,7 @@
 // Expects: $view, $role ('treasurer' / 'chairman' / 'secretary'), $sideNav (View method for the role's menu).
 // ?tab=<key> filters by stage (MemberG3::officerLoanTabs); ?export=csv downloads the current tab.
 require_once __DIR__ . '/../classes/MemberG3.php';
+require_once __DIR__ . '/../chairman/decisions.php';
 
 $g3 = new MemberG3();
 $tabs = MemberG3::officerLoanTabs($role);
@@ -45,6 +46,8 @@ $repaying = array_filter($all, function ($l) { return $l['stage'] === 'Repaying'
 $owed = array_sum(array_column($repaying, 'balance'));
 $overdueCount = $counts['overdue'];
 $h = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
+// The Chairman can tick loans awaiting authorization and authorize or decline them together (js/fud-bulk.js)
+$bulk = $role === 'chairman' && count(array_filter($rows, function ($l) { return $l['stage'] === 'Awaiting Chairman'; })) > 0;
 $pill = function ($stage) { return in_array($stage, ['Repaying', 'Fully repaid'], true) ? 'ok' : (strpos($stage, 'Declined') === 0 ? 'no' : 'wait'); };
 $todo = ['treasurer' => [['review', 'Applications to review', 'mdi-clipboard-check-outline'], ['payout', 'Loans to pay out', 'mdi-bank-transfer']],
          'chairman' => [['authorize', 'Loans to authorize', 'mdi-gavel']],
@@ -108,13 +111,15 @@ echo $view->subHeader('../');
               <?php if (!$rows) { ?>
                 <p class="fud-empty">No loans here.</p>
               <?php } else { ?>
-              <div class="table-responsive">
+              <div class="table-responsive"<?php echo $bulk ? ' data-bulk="loan"' : ''; ?>>
                 <table class="table fud-table" id="loanList">
-                  <thead><tr><th>#</th><th>Member</th><th>Loan</th><th>Applied</th><th class="num">Amount (₦)</th>
+                  <thead><tr><?php if ($bulk) { ?><th style="width:28px"><input type="checkbox" class="bulk-all" title="Select all awaiting you"></th><?php } ?><th>#</th><th>Member</th><th>Loan</th><th>Applied</th><th class="num">Amount (₦)</th>
                     <th class="num">To repay (₦)</th><th class="num">Balance (₦)</th><th>Stage</th><th></th></tr></thead>
                   <tbody>
                   <?php foreach ($rows as $l) { ?>
                     <tr data-search="<?php echo $h(strtolower($who($l) . ' ' . $l['sp_no'] . ' #' . $l['loan_id'] . ' ' . $l['loan_id'])); ?>">
+                      <?php if ($bulk) { ?><td><?php if ($l['stage'] === 'Awaiting Chairman') { ?><input type="checkbox" class="bulk-check" value="<?php echo (int) $l['loan_id']; ?>"
+                          data-label="<?php echo $h($who($l) . ' (' . $l['sp_no'] . ') – ' . $l['loan_type_name'] . ' #' . $l['loan_id'] . ', ₦' . number_format($l['total'], 2)); ?>"><?php } ?></td><?php } ?>
                       <td class="text-muted"><?php echo (int) $l['loan_id']; ?></td>
                       <td class="fud-wrap"><?php echo $h($who($l)); ?><div class="text-muted small"><?php echo $h($l['sp_no']); ?></div></td>
                       <td><?php echo $h($l['loan_type_name']); ?><div class="text-muted small"><?php echo (int) $l['loan_tenor']; ?> months</div></td>
@@ -138,6 +143,7 @@ echo $view->subHeader('../');
 
         </div>
         <?php echo $view->subFooter('../'); ?>
+        <?php echo $bulk ? chairmanBulkScript() : ''; ?>
 
 <script>
 (function () {

@@ -58,6 +58,38 @@ class SavingsG1{
         
             return $stmt->execute() ? 1 : -1;
         }
+        // Chairman's decision on one savings update request by its id (Chairman/update_savings.php): approve sends it
+        // to the Treasurer (is_secretary_approved 1), reject closes it (-1). Returns 1 or a message.
+        public function chairmanDecideSavingsUpdate($id, $approve) {
+            $con = (new DB())->getConnection();
+            $stmt = $con->prepare("UPDATE fudscoops_update_savings SET is_secretary_approved = :s, approved_at = NOW()
+                                   WHERE id = :id AND is_secretary_approved = 0");
+            $stmt->execute([':s' => $approve ? 1 : -1, ':id' => (int) $id]);
+            return $stmt->rowCount() ? 1 : 'This request has already been decided.';
+        }
+
+        // Savings update requests awaiting the Chairman, oldest first, with the member's figures
+        public function savingsUpdatesAwaitingChairman() {
+            $con = (new DB())->getConnection();
+            return $con->query("SELECT u.id, u.employee_id, u.savings_update_amount, u.update_proposed_date,
+                                       m.member_id, m.proposed_monthly_savings, e.sp_no, e.title, e.fname, e.lname, e.oname, e.dept, e.cadre,
+                                       (SELECT COUNT(*) FROM fudscoops_update_savings n WHERE n.employee_id = u.employee_id AND n.id > u.id
+                                          AND n.is_secretary_approved = 0) AS newer_requests
+                                FROM fudscoops_update_savings u
+                                JOIN fudscoops_member m ON m.employee_id = u.employee_id
+                                JOIN employee e ON e.employee_id = u.employee_id
+                                WHERE u.is_secretary_approved = 0
+                                ORDER BY u.id")->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        // What happened to savings update requests in the last 30 days (decided by the Chairman, then the Treasurer)
+        public function savingsUpdatesRecent() {
+            $con = (new DB())->getConnection();
+            return $con->query("SELECT u.*, e.sp_no, e.fname, e.lname FROM fudscoops_update_savings u
+                                JOIN employee e ON e.employee_id = u.employee_id
+                                WHERE u.is_secretary_approved <> 0 AND u.approved_at >= NOW() - INTERVAL 30 DAY
+                                ORDER BY u.approved_at DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
+        }
         // New method for rejection
         public function rejectUpdateSavings($spNo) {
             $db = new DB();
@@ -114,9 +146,10 @@ class SavingsG1{
             $employeeid = $user->getEmployeeId($spNo);
             $status = -1;
             //echo($employeeid);
+                    // Only the pending request (this used to mark every request the member ever made as rejected)
                     $sql = "UPDATE fudscoops_update_savings
-                            SET is_secretary_approved = :status
-                            WHERE employee_id = :employeeid";
+                            SET is_secretary_approved = :status, approved_at = NOW()
+                            WHERE employee_id = :employeeid AND is_secretary_approved = 0";
             
                     $stmt = $con->prepare($sql);
             
@@ -185,7 +218,8 @@ class SavingsG1{
             return 'Your savings (₦' . number_format($balance, 2) . ') do not cover what you owe (₦' . number_format($obligations['total_owed'], 2) . '). Repay the rest first.';
         }
         if ($obligations['payout'] <= 0) {
-            return 'There is nothing to pay out: your savings balance is ₦' . number_format($balance, 2) . '.';
+            return 'There is nothing to pay out: your savings balance is ₦' . number_format($balance, 2) . ', and ₦'
+                . number_format($obligations['min_balance'], 2) . ' must stay in savings.';
         }
         if (!preg_match('/^\d{10}$/', trim((string) $acct_no))) {
             return 'Enter the 10-digit account number.';
