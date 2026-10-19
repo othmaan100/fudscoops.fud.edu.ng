@@ -80,6 +80,52 @@ and `fudscoops_shares_conversion` (`conversion_status`, `chairman_approval`): 0 
 
 ## 2026-10-19
 
+### Treasurer savings withdrawals redesigned; withdrawal upload fixed, with empty and prefilled templates
+
+No database changes.
+
+**Treasurer/withdrawal_endorsement.php:**
+- **Header and figures:** requests awaiting the Treasurer (and the amount asked), how many ask for more than
+  allowed, and how many are with the Chairman.
+- **Tabs:** Awaiting you, and With the Chairman.
+- **Each request shows:**
+  - the date it was asked for, or "uploaded";
+  - the amount asked, with an "over the limit" flag;
+  - the savings balance and the most that can be withdrawn;
+  - the bank account.
+- **Download as upload template:** the requests awaiting you, in the upload layout.
+- **Fixes:**
+  - the bank showed as a number;
+  - "Total savings" ignored withdrawals already paid;
+  - the old table plugin loaded from a path outside the site.
+
+**Treasurer/uploadWithdrawals.php (part of Savings Withdrawals):**
+- **Two downloads** replace the single template:
+  - **Empty template:** the column headings only, for paper applications.
+  - **Prefilled:** every request awaiting the Treasurer, with its Withdrawal ID, staff number, name, bank,
+    account and an approved amount. That amount is what was asked, or the most that can be withdrawn if
+    less. Columns after the amount (amount requested, savings balance, most allowed, date) are for
+    checking and are ignored on upload.
+- **Login check added:** the page had none.
+
+**Treasurer/uploadWithdrawalCSV.php (rewritten).** Every row is now the Treasurer's approval, made with the same
+method as approving one request (`MemberG1::treasurerApproveWithdrawal`).
+- **With a Withdrawal ID:** the request is approved and goes to the Chairman. Before, the amount was saved
+  but the status stayed 0, so uploaded requests never reached the Chairman (the problem fixed on
+  2026-10-15 for single approvals). The ID must belong to the staff number in the row.
+- **Without an ID (paper application):** a request is recorded and approved. A member who already has a
+  request waiting is skipped, with that request's number given. Before, a new request was added anyway,
+  unless one had been created in the previous 24 hours.
+- **Checks on every row:**
+  - the amount must leave the minimum balance (it was not checked before);
+  - requests already decided are not changed (before, an approved request's amount could be overwritten);
+  - the bank name is matched to the bank list;
+  - account numbers that lost their leading zero in a spreadsheet are padded back to 10 digits.
+- **Access:** Treasurer only (there was no login check).
+- **Tested:** a prefilled file of the 28 waiting requests, plus paper and error rows, uploaded on a copy of the
+  database. 27 were approved and 1 was refused (₦0 allowed); the paper application was recorded; over-limit,
+  wrong-member, already-decided and duplicate rows were each refused with the reason.
+
 ### Chairman authorizations: detailed and bulk
 
 No database changes. Every Chairman authorization can now be done in two ways:
