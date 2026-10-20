@@ -431,11 +431,7 @@ class View{
             ],
             'Records' => [
                 ['Members Savings', 'mdi-wallet', 'view_savings.php'],
-                ['Savings Withdrawals', 'mdi-bank-transfer-out', 'ui-withdrawals', [
-                    ['View Uploaded Withdrawals', 'uploaded_withdrawals.php'],
-                    ['View Withdrawal Approvals', 'approved_withdrawals.php'],
-                    ['Withdrawal Approvals Report', 'view_withdrawals_report.php'],
-                ]],
+                ['Approved Withdrawals', 'mdi-check-all', 'approved_withdrawals.php'],
                 ['Generate Report', 'mdi-file-chart', 'reports.php'],
             ],
             'Settings' => [

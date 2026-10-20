@@ -119,7 +119,7 @@ class SavingsG1{
                 SELECT
                     u.id, u.employee_id, u.savings_update_amount, u.update_proposed_date,
                     e.sp_no, e.fname, e.lname, e.oname, e.dept,
-                    m.proposed_monthly_savings,
+                    m.proposed_monthly_savings, m.member_id,
                     (SELECT COUNT(*) FROM fudscoops_update_savings o
                       WHERE o.employee_id = u.employee_id AND o.id < u.id
                         AND o.is_secretary_approved = 1 AND o.is_treasurer_approved = 0) AS earlier_requests

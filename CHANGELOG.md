@@ -220,6 +220,69 @@ pages.
 
 ---
 
+## 2026-10-20
+
+### Treasurer savings and withdrawal records redesigned; duplicate pages removed
+
+No database changes.
+
+**Treasurer/view_savings.php (Members Savings, rebuilt):**
+- **Wrong filter fixed:** the old page searched by `savings_date`, which is empty on 2,196 of 3,497 savings rows
+  (monthly uploads), so most savings never appeared. It also dropped every member without an IPPIS record.
+  Savings are now taken by the month they are for (month/year).
+- **By month:**
+  - what was saved against the monthly savings due;
+  - tabs for All, Saved, Saved less than monthly and Nothing recorded, with counts;
+  - each member's monthly savings, amount saved, status and savings balance;
+  - search, pages of 50 and a CSV download.
+
+  October 2026: ₦14,845,082.43 saved, with 182 members having nothing recorded.
+- **Yearly summary:** the total saved and the number of members for each month.
+
+**Treasurer/approved_withdrawals.php (Approved Withdrawals register):**
+- **One page:** every withdrawal the Chairman approved, by approval date, covering savings withdrawals and
+  complete withdrawals.
+- **Filters and totals:** presets (this month, last month, this year, all time) or a from/to range; a type
+  filter; totals; search with a running total; CSV download.
+- **Payment details:** each row shows the amount paid and any debts paid from savings.
+- **Missing approval date:** approvals from before 2026-10-18 did not record one (`0000-00-00`); the request
+  date is used instead.
+
+**Treasurer/treasurer_view_approved_savings.php (Savings Update):**
+- Same approval and offline upload, redesigned: requests with current, requested and new amounts, the change, and
+  a link to the member.
+- The "Many at once" panel holds download and upload.
+- Results of the last 30 days are listed.
+- The Chairman's Update Savings page now labels superseded requests "Replaced", not "Rejected".
+
+**Removed (duplicates):**
+- `Treasurer/uploaded_withdrawals.php`: the same list as the "With the Chairman" tab on Treasurer Savings
+  Withdrawals. A wrong request is rejected there with a reason instead of being deleted.
+- `Treasurer/view_withdrawals_report.php`: approved withdrawals by date, now part of Approved Withdrawals.
+- `ajax/delete_withdrawal.php`: had **no login check** and permanently deleted any withdrawal, approved
+  payouts included.
+- `ajax/fetch_members_savings.php`: had **no login check** and returned any member's savings.
+- `ajax/fetch_withdrawals_ajax.php`: used only by the report page.
+
+**Menu:** Treasurer › Records now has **Approved Withdrawals** instead of the three withdrawal links.
+
+**Data note:** the 48 savings updates the Treasurer fixed on 2026-10-05 set members' monthly savings to about
+₦50,0xx, whatever was requested. This looks like test data from a CSV upload; check those members'
+monthly savings.
+
+| File | Change |
+|---|---|
+| `Treasurer/view_savings.php` | Rebuilt |
+| `Treasurer/approved_withdrawals.php` | Rebuilt as the approved withdrawals register |
+| `Treasurer/treasurer_view_approved_savings.php` | Redesigned |
+| `Treasurer/uploaded_withdrawals.php`, `Treasurer/view_withdrawals_report.php` | **Removed** |
+| `ajax/delete_withdrawal.php`, `ajax/fetch_members_savings.php`, `ajax/fetch_withdrawals_ajax.php` | **Removed** |
+| `config/classes/View.php` | Treasurer menu |
+| `config/classes/SavingsG1.php` | `getChairmanApprovedSavingsUpdates()` also returns `member_id` |
+| `js/custom.js` | Removed the old Members Savings form handler |
+| `Chairman/update_savings.php` | "Replaced" label |
+
+---
 ## 2026-10-18
 
 ### Member withdrawal history redesigned (R/view_all_withdrawals.php)

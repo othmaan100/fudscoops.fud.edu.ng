@@ -124,7 +124,7 @@
                         <td><?php echo $d['is_secretary_approved'] == 1 ? '<span class="fud-pill ok">Approved</span>' : '<span class="fud-pill no">Rejected</span>'; ?></td>
                         <td><?php if ($d['is_secretary_approved'] != 1) { ?><span class="text-muted">–</span>
                           <?php } elseif ($d['is_treasurer_approved'] == 1) { ?><span class="fud-pill ok">Fixed at <?php echo $money($d['treasurer_approved_amount']); ?></span>
-                          <?php } elseif ($d['is_treasurer_approved'] == -1) { ?><span class="fud-pill no">Rejected</span>
+                          <?php } elseif ($d['is_treasurer_approved'] == -1) { ?><span class="fud-pill wait" title="The member made a newer request, which was approved instead">Replaced</span>
                           <?php } else { ?><span class="fud-pill wait">Pending</span><?php } ?></td></tr>
                     <?php } ?>
                     </tbody>

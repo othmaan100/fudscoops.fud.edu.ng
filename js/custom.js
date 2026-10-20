@@ -3310,33 +3310,7 @@ $('#edit-batch-form').on('submit', function(e) {
     
     
      //===================== Endorsement of Loan ==================================
-$(document).on('submit', '#form-fetch_savings', function(e){
-    e.preventDefault(); // Prevent the form from submitting normally
-
-    // Confirm the action with the user
-  
-    var data = $(this).serialize(); // Serialize the form data
-
-    console.log(data)
-    // Display a loading message
-    $('.msg').html('<div class="alert offset-md-4 col-4 alert-primary"><i> Fetching please wait...</i></div>');
-
-    // Perform the AJAX request
-    $.ajax({
-        url: fudBase + "ajax/fetch_members_savings.php", // The URL to send the form data to
-        data: data, // The serialized form data
-        type: "POST", // The HTTP method to use
-        success: function(msg){
-            
-            
-                // Success message
-                $('.msg').html(msg);
-                // Redirect after a short delay
-                //setTimeout(function(){ window.location = '../auth/logout.php'; }, 100);
-            
-        }
-    });
-});
+// (Members Savings is now Treasurer/view_savings.php, rendered on the server)
 
 
  //===================== form-fetch-withdrawals ================================== 

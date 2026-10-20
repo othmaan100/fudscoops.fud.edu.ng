@@ -1,4 +1,6 @@
 <?php
+    // Monthly savings update requests the Chairman approved, waiting for the Treasurer to fix the new amount
+    // (ajax/treasurer_approve_savings_update.php), one by one or offline (download_savings_updates.php, then upload the CSV).
     require_once('../config/classes/View.php');
     require_once('../config/classes/User.php');
     require_once('../config/classes/SavingsG1.php');
@@ -33,216 +35,185 @@
     $uploadSummary = isset($_SESSION['savings_upload_summary']) ? $_SESSION['savings_upload_summary'] : null;
     unset($_SESSION['savings_upload_summary']);
 
+    $h = function ($v) { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); };
+    $money = function ($v) { return ((float) $v < 0 ? '−' : '') . '₦' . number_format(abs((float) $v), 2); };
     $requests = $savings->getChairmanApprovedSavingsUpdates();
+    $recent = array_values(array_filter($savings->savingsUpdatesRecent(), function ($d) { return $d['is_secretary_approved'] == 1 && $d['is_treasurer_approved'] != 0; }));
+    $minimum = SavingsG1::getMinMonthlySavings();
+    $change = 0;
+    foreach ($requests as $r) {
+        $change += (float) $r['savings_update_amount'] - (float) $r['proposed_monthly_savings'];
+    }
 
     echo $view->subHeader('../');
 ?>
-    <!-- partial:partials/_navbar.html -->
-    <?php  echo $view->subPartialNav('../')?>
-    <!-- partial -->
+    <?php echo $view->subPartialNav('../'); ?>
     <div class="container-fluid page-body-wrapper">
-      <!-- partial:partials/_sidebar.html -->
-      <?php  echo $view->treasurerSideNav()?>
-      <!-- partial -->
+      <?php echo $view->treasurerSideNav(); ?>
       <div class="main-panel">
-        <div class="content-wrapper">
+        <div class="content-wrapper fud-dash">
 
-          <div class="row">
-            <div class="col-md-12 grid-margin">
-              <h2>TREASURER ACCOUNT</h2>
-              <h4 class="text-primary">Savings Update Requests</h4>
-              <p class="text-muted mb-0">
-                Requests approved by the Chairman and awaiting your approved amount.
-                Approving a request updates the member's monthly savings.
-                Minimum monthly savings: ₦<?php echo number_format(SavingsG1::getMinMonthlySavings()); ?>
-                (<a href="savings_settings.php">change</a>).
-              </p>
+          <div class="fud-hero">
+            <div class="fud-hero-date">Savings</div>
+            <h2><i class="mdi mdi-calendar-edit"></i> Monthly savings updates</h2>
+            <p>Requests the Chairman has approved. Fix the new monthly amount for each member, one by one below or for many at once
+              with the download and upload. Approving changes the member's monthly savings straight away.</p>
+            <div class="fud-hero-actions">
+              <a href="savings_settings.php"><i class="mdi mdi-cog"></i> Minimum <?php echo $money($minimum); ?> a month</a>
+              <a href="view_savings.php"><i class="mdi mdi-wallet"></i> Members savings</a>
             </div>
           </div>
 
           <?php if ($uploadSummary) { ?>
-            <div class="row">
-              <div class="col-md-12 grid-margin">
-                <div class="alert <?php echo empty($uploadSummary['errors']) ? 'alert-success' : 'alert-warning'; ?>">
-                  <strong>Upload result:</strong>
-                  <?php echo (int) $uploadSummary['approved']; ?> approved,
-                  <?php echo (int) $uploadSummary['skipped']; ?> left pending (blank approved amount),
-                  <?php echo count($uploadSummary['errors']); ?> not processed.
-                  <?php if (!empty($uploadSummary['errors'])) { ?>
-                    <ul class="mb-0 mt-2">
-                      <?php foreach ($uploadSummary['errors'] as $error) { ?>
-                        <li><?php echo htmlspecialchars($error); ?></li>
-                      <?php } ?>
-                    </ul>
+            <div class="fud-notice <?php echo empty($uploadSummary['errors']) ? 'success' : ''; ?>"><i class="mdi mdi-<?php echo empty($uploadSummary['errors']) ? 'check-circle' : 'alert-circle'; ?>"></i>
+              <span><strong>Upload result:</strong> <?php echo (int) $uploadSummary['approved']; ?> approved,
+                <?php echo (int) $uploadSummary['skipped']; ?> left pending (blank amount), <?php echo count($uploadSummary['errors']); ?> not processed.
+                <?php if (!empty($uploadSummary['errors'])) { ?>
+                  <ul class="mb-0 mt-2 pl-3"><?php foreach ($uploadSummary['errors'] as $error) { ?><li><?php echo $h($error); ?></li><?php } ?></ul>
+                <?php } ?></span></div>
+          <?php } ?>
+
+          <div class="fud-stats">
+            <div class="fud-stat"><div class="fud-stat-icon fud-amber"><i class="mdi mdi-clock-outline"></i></div>
+              <div><div class="fud-stat-label">Awaiting you</div><div class="fud-stat-value" id="pendingCount"><?php echo count($requests); ?></div>
+                <div class="fud-stat-sub">approved by the Chairman</div></div></div>
+            <div class="fud-stat"><div class="fud-stat-icon fud-blue"><i class="mdi mdi-trending-up"></i></div>
+              <div><div class="fud-stat-label">Change in monthly savings</div><div class="fud-stat-value"><?php echo ($change > 0 ? '+' : '') . $money($change); ?></div>
+                <div class="fud-stat-sub">if approved as requested</div></div></div>
+            <div class="fud-stat"><div class="fud-stat-icon fud-green"><i class="mdi mdi-check-all"></i></div>
+              <div><div class="fud-stat-label">Fixed in the last 30 days</div><div class="fud-stat-value"><?php echo count(array_filter($recent, function ($d) { return $d['is_treasurer_approved'] == 1; })); ?></div>
+                <div class="fud-stat-sub">see the list below</div></div></div>
+          </div>
+
+          <div class="row">
+            <div class="col-lg-8">
+              <div class="fud-section">
+                <div class="fud-section-head"><h5><i class="mdi mdi-format-list-checks"></i> Requests</h5></div>
+                <div class="fud-section-body">
+                  <div class="msg"></div>
+                  <?php if (!$requests) { ?>
+                    <p class="fud-empty"><i class="mdi mdi-check-circle-outline"></i> No savings update requests are waiting. They appear here after the Chairman approves them.</p>
+                  <?php } else { ?>
+                    <input class="form-control fud-search" type="search" id="searchSavingsUpdate" placeholder="Search name, staff number, department…">
+                    <div class="table-responsive">
+                      <table class="table fud-table mb-0">
+                        <thead><tr><th>Member</th><th class="num">Current</th><th class="num">Requested</th><th style="min-width:180px">New monthly amount</th><th></th></tr></thead>
+                        <tbody id="searchSavingsUpdateBody">
+                        <?php foreach ($requests as $r) {
+                            $name = preg_replace('/\s+/', ' ', trim($r['fname'] . ' ' . $r['oname'] . ' ' . $r['lname']));
+                            $diff = (float) $r['savings_update_amount'] - (float) $r['proposed_monthly_savings']; ?>
+                          <tr>
+                            <td style="white-space:normal;min-width:170px">
+                              <a href="member_profile.php?member_id=<?php echo (int) $r['member_id']; ?>" class="font-weight-bold text-dark"><?php echo $h($name); ?></a>
+                              <div class="small text-muted"><?php echo $h($r['sp_no']); ?><?php echo $r['dept'] ? ' · ' . $h($r['dept']) : ''; ?></div>
+                              <div class="small text-muted">requested <?php echo date('d M Y', strtotime($r['update_proposed_date'])); ?>
+                                <?php if ($r['earlier_requests'] > 0) { ?> · <span title="Earlier pending requests from this member are closed when this one is approved">replaces <?php echo (int) $r['earlier_requests']; ?> earlier</span><?php } ?></div>
+                            </td>
+                            <td class="num text-nowrap"><?php echo $money($r['proposed_monthly_savings']); ?></td>
+                            <td class="num text-nowrap"><strong><?php echo $money($r['savings_update_amount']); ?></strong>
+                              <div class="small <?php echo $diff >= 0 ? 'text-success' : 'text-danger'; ?>"><?php echo ($diff > 0 ? '+' : '') . $money($diff); ?></div></td>
+                            <td>
+                              <div class="input-group input-group-sm">
+                                <div class="input-group-prepend"><span class="input-group-text">₦</span></div>
+                                <input type="number" class="form-control approved-amount" min="<?php echo $minimum; ?>" step="0.01"
+                                       value="<?php echo $h($r['savings_update_amount']); ?>" data-requested="<?php echo $h($r['savings_update_amount']); ?>">
+                              </div>
+                            </td>
+                            <td class="text-right"><button type="button" class="btn btn-sm btn-success text-nowrap approve-savings-update"
+                                data-update-id="<?php echo (int) $r['id']; ?>" data-name="<?php echo $h($name . ' (' . $r['sp_no'] . ')'); ?>"><i class="mdi mdi-check"></i> Approve</button></td>
+                          </tr>
+                        <?php } ?>
+                        </tbody>
+                      </table>
+                    </div>
                   <?php } ?>
+                </div>
+              </div>
+            </div>
+
+            <div class="col-lg-4">
+              <div class="fud-section">
+                <div class="fud-section-head"><h5><i class="mdi mdi-file-excel"></i> Many at once</h5></div>
+                <div class="fud-section-body">
+                  <ol class="small pl-3">
+                    <li>Download the list. <em>Approved Amount</em> is filled with what each member asked for.</li>
+                    <li>Change an amount where a different one is approved, or clear it to leave the request pending. Do not change <em>Request ID</em> or <em>Staff Number</em>.</li>
+                    <li>Save as CSV and upload it here.</li>
+                  </ol>
+                  <a href="download_savings_updates.php" class="btn btn-outline-primary btn-block mb-3<?php echo $requests ? '' : ' disabled'; ?>"><i class="mdi mdi-download"></i> Download list (CSV)</a>
+                  <form method="POST" enctype="multipart/form-data" onsubmit="return confirm('Approve every request in this file with the amounts entered?');">
+                    <label class="fud-file mb-2" for="approvedList"><i class="mdi mdi-file-delimited"></i>
+                      <span id="approvedListName">Choose the .csv file</span>
+                      <input type="file" id="approvedList" name="approved_list" accept=".csv" required></label>
+                    <button type="submit" class="btn btn-success btn-block"><i class="mdi mdi-upload"></i> Upload approved list</button>
+                  </form>
+                  <p class="small text-muted mt-2 mb-0">Where a member applied more than once, only the latest request is listed; approving it closes the earlier ones.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <?php if ($recent) { ?>
+            <div class="fud-section">
+              <div class="fud-section-head"><h5><i class="mdi mdi-history"></i> Decided in the last 30 days</h5></div>
+              <div class="fud-section-body">
+                <div class="table-responsive">
+                  <table class="table fud-table mb-0">
+                    <thead><tr><th>Chairman approved</th><th>Member</th><th class="num">Requested</th><th>Result</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($recent as $d) { ?>
+                      <tr><td class="text-nowrap"><?php echo date('d M Y', strtotime($d['approved_at'])); ?></td>
+                        <td><?php echo $h(trim($d['fname'] . ' ' . $d['lname'])); ?> <span class="small text-muted">(<?php echo $h($d['sp_no']); ?>)</span></td>
+                        <td class="num"><?php echo $money($d['savings_update_amount']); ?></td>
+                        <td><?php echo $d['is_treasurer_approved'] == 1 ? '<span class="fud-pill ok">Fixed at ' . $money($d['treasurer_approved_amount']) . '</span>'
+                            : '<span class="fud-pill wait" title="The member made a newer request, which was approved instead">Replaced</span>'; ?></td></tr>
+                    <?php } ?>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
           <?php } ?>
 
-          <div class="row">
-            <!-- Offline processing -->
-            <div class="col-md-12 grid-margin stretch-card">
-              <div class="card">
-                <div class="card-body">
-                  <h5 class="card-title">Offline processing</h5>
-                  <ol class="pl-3">
-                    <li>Download the list. The <em>Approved Amount</em> column is pre-filled with the amount each member requested.</li>
-                    <li>Change the <em>Approved Amount</em> where a different amount is approved. Clear it to leave a request pending. Do not change the <em>Request ID</em> or <em>Staff Number</em> columns.</li>
-                    <li>Save as CSV and upload it below.</li>
-                    <li class="text-muted">Where a member applied more than once, only their latest request is listed; approving it closes the earlier ones.</li>
-                  </ol>
-                  <div class="d-flex flex-wrap align-items-center">
-                    <a href="download_savings_updates.php" class="btn btn-primary mr-3 mb-2 <?php echo empty($requests) ? 'disabled' : ''; ?>">
-                      <i class="mdi mdi-download"></i> Download List (CSV)
-                    </a>
-                    <form method="POST" enctype="multipart/form-data" class="form-inline mb-2"
-                          onsubmit="return confirm('Approve all requests in this file with the approved amounts entered?');">
-                      <input type="file" name="approved_list" accept=".csv" class="form-control-file mr-2" required>
-                      <button type="submit" class="btn btn-success">
-                        <i class="mdi mdi-upload"></i> Upload Approved List
-                      </button>
-                    </form>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="row">
-            <!-- Individual processing -->
-            <div class="col-md-12 grid-margin stretch-card">
-              <div class="card">
-                <div class="card-body">
-                  <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
-                    <h5 class="card-title mb-2">
-                      Pending requests (<span id="pendingCount"><?php echo count($requests); ?></span>)
-                    </h5>
-                    <input class="form-control col-md-4" type="search" id="searchSavingsUpdate" placeholder="Search by Staff No, Name, Department...">
-                  </div>
-                  <div class="msg"></div>
-                  <div class="table-responsive">
-                    <table class="table table-bordered table-hover">
-                      <thead class="thead-dark">
-                        <tr>
-                          <th>S/N</th>
-                          <th>Staff Number</th>
-                          <th>Name</th>
-                          <th>Department</th>
-                          <th>Date Requested</th>
-                          <th>Current Monthly Savings</th>
-                          <th>Requested Amount</th>
-                          <th>Approved Amount (₦)</th>
-                          <th>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody id="searchSavingsUpdateBody">
-                        <?php if (empty($requests)) { ?>
-                          <tr><td colspan="9" class="text-center text-muted">No savings update requests awaiting approval.</td></tr>
-                        <?php } ?>
-                        <?php
-                          $sn = 1;
-                          foreach ($requests as $request) {
-                              $name = preg_replace('/\s+/', ' ', trim($request['fname'] . ' ' . $request['oname'] . ' ' . $request['lname']));
-                        ?>
-                          <tr>
-                            <td><?php echo $sn; ?></td>
-                            <td><?php echo htmlspecialchars($request['sp_no']); ?></td>
-                            <td><?php echo htmlspecialchars($name); ?></td>
-                            <td><?php echo htmlspecialchars($request['dept']); ?></td>
-                            <td><?php echo date('d/m/Y', strtotime($request['update_proposed_date'])); ?></td>
-                            <td>₦<?php echo number_format((float) $request['proposed_monthly_savings'], 2); ?></td>
-                            <td>
-                              ₦<?php echo number_format((float) $request['savings_update_amount'], 2); ?>
-                              <?php if ($request['earlier_requests'] > 0) { ?>
-                                <br><small class="text-muted" title="Earlier pending requests from this member are closed when this one is approved">
-                                  replaces <?php echo (int) $request['earlier_requests']; ?> earlier request(s)
-                                </small>
-                              <?php } ?>
-                            </td>
-                            <td style="min-width: 150px">
-                              <input type="number" class="form-control form-control-sm approved-amount"
-                                     min="<?php echo SavingsG1::getMinMonthlySavings(); ?>" step="0.01"
-                                     value="<?php echo htmlspecialchars($request['savings_update_amount']); ?>"
-                                     data-requested="<?php echo htmlspecialchars($request['savings_update_amount']); ?>">
-                            </td>
-                            <td>
-                              <button class="btn btn-sm btn-success approve-savings-update"
-                                      data-update-id="<?php echo (int) $request['id']; ?>"
-                                      data-staff-no="<?php echo htmlspecialchars($request['sp_no']); ?>">
-                                Approve
-                              </button>
-                            </td>
-                          </tr>
-                        <?php
-                              $sn++;
-                          }
-                        ?>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
         </div>
-        <!-- content-wrapper ends -->
+        <?php echo $view->subFooter('../'); ?>
 
-        <script>
-          $(document).ready(function() {
-              $('#searchSavingsUpdate').on('keyup', function() {
-                  const value = $(this).val().toLowerCase();
-                  $('#searchSavingsUpdateBody tr').each(function() {
-                      $(this).toggle($(this).text().toLowerCase().includes(value));
-                  });
-              });
-
-              $(document).on('click', '.approve-savings-update', function() {
-                  const button = $(this);
-                  const row = button.closest('tr');
-                  const input = row.find('.approved-amount');
-                  const amount = parseFloat(input.val());
-                  const requested = parseFloat(input.data('requested'));
-                  const minimum = parseFloat(input.attr('min'));
-
-                  if (isNaN(amount) || amount < minimum) {
-                      alert('Enter a valid approved amount of at least ₦' + minimum.toLocaleString() + '.');
-                      input.focus();
-                      return;
-                  }
-
-                  let question = 'Approve ₦' + amount.toLocaleString() + ' as the new monthly savings for ' + button.data('staff-no') + '?';
-                  if (amount !== requested) {
-                      question = 'The member requested ₦' + requested.toLocaleString() + '.\n' + question;
-                  }
-                  if (!confirm(question)) {
-                      return;
-                  }
-
-                  button.prop('disabled', true).text('Saving...');
-                  $.post('../ajax/treasurer_approve_savings_update.php', {
-                      update_id: button.data('update-id'),
-                      amount: amount
-                  }, function(response) {
-                      const alertClass = response.success ? 'alert-success' : 'alert-danger';
-                      $('.msg').html('<div class="alert ' + alertClass + '">' + $('<div>').text(response.message).html() + '</div>');
-                      if (response.success) {
-                          row.fadeOut(300, function() {
-                              $(this).remove();
-                              $('#pendingCount').text($('#searchSavingsUpdateBody .approve-savings-update').length);
-                          });
-                      } else {
-                          button.prop('disabled', false).text('Approve');
-                      }
-                  }, 'json').fail(function() {
-                      $('.msg').html('<div class="alert alert-danger">Network error. Please try again.</div>');
-                      button.prop('disabled', false).text('Approve');
-                  });
-              });
-          });
-        </script>
-
-        <?php
-          echo $view->subFooter('../');
-        ?>
+<script>
+(function () {
+    var file = document.getElementById('approvedList');
+    file.addEventListener('change', function () { document.getElementById('approvedListName').textContent = file.files.length ? file.files[0].name : 'Choose the .csv file'; });
+    var body = document.getElementById('searchSavingsUpdateBody');
+    if (!body) { return; }
+    var msg = document.querySelector('.msg');
+    document.getElementById('searchSavingsUpdate').addEventListener('input', function () {
+        var q = this.value.toLowerCase();
+        body.querySelectorAll('tr').forEach(function (r) { r.style.display = r.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none'; });
+    });
+    body.addEventListener('click', function (e) {
+        var button = e.target.closest('.approve-savings-update');
+        if (!button) { return; }
+        var row = button.closest('tr'), input = row.querySelector('.approved-amount');
+        var amount = parseFloat(input.value), requested = parseFloat(input.getAttribute('data-requested')), minimum = parseFloat(input.getAttribute('min'));
+        var fmt = function (v) { return '₦' + v.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+        if (isNaN(amount) || amount < minimum) { alert('Enter an amount of at least ' + fmt(minimum) + '.'); input.focus(); return; }
+        var question = 'Approve ' + fmt(amount) + ' as the new monthly savings for ' + button.getAttribute('data-name') + '?';
+        if (Math.abs(amount - requested) > 0.005) { question = 'The member asked for ' + fmt(requested) + '.\n' + question; }
+        if (!confirm(question)) { return; }
+        button.disabled = true;
+        var data = new FormData();
+        data.append('update_id', button.getAttribute('data-update-id'));
+        data.append('amount', amount);
+        fetch('../ajax/treasurer_approve_savings_update.php', { method: 'POST', body: data, credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+                msg.innerHTML = '<div class="alert alert-' + (res.success ? 'success' : 'danger') + '"></div>';
+                msg.firstChild.textContent = res.message;
+                if (res.success) {
+                    row.parentNode.removeChild(row);
+                    document.getElementById('pendingCount').textContent = body.querySelectorAll('tr').length;
+                } else { button.disabled = false; }
+            })
+            .catch(function () { msg.innerHTML = '<div class="alert alert-danger">Network or server error. Please try again.</div>'; button.disabled = false; });
+    });
+})();
+</script>
