@@ -467,40 +467,7 @@ $(document).ready(function () {
     });
     
     
-       // ++++++++++++++++ upload Members +++++++++++++++++++++++++++++++++++++++++++++++
-    $(document).on('click', '#upload_members', function (e) {
-        e.preventDefault();
-     
-       //alert(year);
-       $('#msg').html('<h3 id="loading" ><img src="../img/loading.gif" alt=""> <i>Uploading Members List please wait...</i></h3>')
-
- 
-        var file_data = $('#uploadFile').prop('files')[0];
-        var form_data = new FormData();
-         //alert(file_data);
-        form_data.append('uploadFile', file_data);
-        
-        
-        
-        $('#loading').removeAttr('hidden')
-            $.ajax({
-                url: 'uploadMembersExcel.php',
-                dataType: 'text',  // what to expect back from the PHP script, if anything
-                cache: false,
-                contentType: false,
-                processData: false,
-                data: form_data,
-                type: 'post',
-                success: function (msg) {
-                     //alert(msg)
-                    e.preventDefault();
-                    // display response from the PHP script, if any
-                    $('#msg').html(msg)
-                    return false;
-                }
-            });//end ajax
-
-    });
+       // (Members upload is handled on Treasurer/upload.php itself)
     
      // ++++++++++++++++ upload Withdrawals +++++++++++++++++++++++++++++++++++++++++++++++
     $(document).on('click', '#withdrawals_uploads', function (e) { 

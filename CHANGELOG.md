@@ -27,6 +27,7 @@ at the top.
 | 10 | `db/2026-10-17_withdrawal_chairman_decisions.sql` | Savings withdrawals: adds `chairman_comment`, `chairman_decided_by`, `chairman_decided_at`; `chairman_approval` -1 = rejected by the Chairman (reason shown to the member). No changes to existing records. Undo statement in the file. Run after #9 and BEFORE uploading the code. | Applied 2026-10-17 | Pending |
 | 11 | `db/2026-10-17_complete_withdrawal_decisions.sql` | Complete withdrawals: `acount_number` changes from INT to text (10-digit numbers had been saved as 2147483647 and leading zeros dropped). Restores leading zeros (pads to 10 digits) and clears the 21 numbers saved as 2147483647, which the Treasurer re-enters when approving. Adds `treasurer_comment`, `treasurer_decided_by`, `treasurer_decided_at`; `chairman_approval` -1 = rejected by the Treasurer. Backup `fudscoops_complete_withrawal_backup_20261017`; undo statements in the file. Run after #10 and BEFORE uploading the code. | Applied 2026-10-17 (29 numbers fixed, 21 cleared) | Pending |
 | 12 | `db/2026-10-18_complete_withdrawal_chairman.sql` | Complete withdrawals: adds `chairman_comment`, `chairman_decided_by`, `chairman_decided_at` so the Chairman can reject with a reason (`chairman_approval` -1). No changes to existing records. Undo statement in the file. Run after #11 and BEFORE uploading the code. | Applied 2026-10-18 | Pending |
+| 13 | `db/2026-10-23_savings_opening_balance.sql` | Adds `fudscoops_savings.entry_type` (`monthly`, `opening`, `credit`) so a member's opening balance (savings before the portal) and loan-overpayment credits are kept apart from monthly deductions. Marks the 1,300 rows of the 4 Aug 2026 members upload as `opening` and the overpayment credits as `credit`. Balances do not change. Backup `fudscoops_savings_backup_20261023`; undo statement in the file. Run after #12 and BEFORE uploading the code. | Applied 2026-10-23 (1,300 opening, 1 credit) | Pending |
 | 13 | `db/2026-10-19_special_commodity.sql` | Special commodity requests: adds `fudscoops_commodity_loan_applications.request_type` ('regular' / 'special', existing rows 'regular') and the new table `fudscoops_special_commodity_items` (item, description, quantity, member's estimated price, Treasurer's price, approved quantity). No existing records change. Undo statements in the file. Run after #12 and BEFORE uploading the code. | Applied 2026-10-19 | Pending |
 
 ### Meaning of the approval columns (as of 2026-10-06)
@@ -220,6 +221,81 @@ pages.
 
 ---
 
+## 2026-10-23
+
+### Upload new members: check before import, new template, opening balances kept apart
+
+Run `db/2026-10-23_savings_opening_balance.sql` (#13) on the live database **before** uploading this code.
+
+**Treasurer/upload.php (redesigned):**
+- **Step 1 – fill the template:** each column is explained, with an example.
+- **Step 2 – Check file:** reads every row and reports what would happen, without saving anything:
+  - new member, applicant approved, or already a member (not changed);
+  - or the problem with the row.
+- **Import:** saves only the rows that passed the check, after a confirmation with the totals. Rows with
+  problems can be downloaded as a CSV with the reason, to correct and upload again.
+- **Access:** the page and `uploadMembersExcel.php` now require the Treasurer. Before, neither checked the
+  login, so anyone could create members.
+
+**New template (`Members_uploads.csv`):**
+- **Columns:** Staff Number, Name (optional), Monthly Savings, Opening Savings Balance (optional), Balance As
+  At (MM/YYYY, optional; default last month).
+- **Old file:** the three-column file still works, with Consolidated Savings read as the opening balance.
+- **Checks per row:**
+  - the staff number exists (case and spaces ignored), and is not repeated in the file;
+  - monthly savings is at least the minimum;
+  - amounts may have commas;
+  - the as-at month is valid and not in the future;
+  - a name, if given, matches the staff record (catches a mistyped staff number);
+  - the membership record was not deleted.
+- **Warnings** for staff with no portal login yet, and for officer logins.
+
+**What an import does (config/classes/MemberUpload.php):**
+- **New staff:** become full members with the monthly savings.
+- **Applicants still waiting:** are approved with the monthly savings.
+- **Existing members:** are not changed. Before, the upload overwrote their monthly savings and the current
+  month's savings.
+- **Opening balance:** recorded once as `entry_type = 'opening'` for the as-at month, and never added twice on
+  a re-upload. Before, "Consolidated Savings" was saved as the current month's savings row. The month's real
+  deduction was then refused by the savings upload as "Already exists" (or, uploaded first, overwritten).
+- **Logins:** an applicant login (level 0) becomes a member login. Officer logins are no longer lowered;
+  before, any officer whose staff number was in the file (e.g. the Chairman, SP/RN/2697) was reset to
+  member level and lost the office account.
+
+**Opening balances elsewhere:**
+- **Savings upload:** `uploadDeposit.php` checks for an existing **monthly** row only, so an opening balance or
+  overpayment credit no longer blocks the month's deduction.
+- **Member statements:** show "Opening balance (savings before the portal), as at …".
+- **Members Savings:** counts monthly deductions only.
+- **Overpayment credits:** saved as `entry_type = 'credit'`.
+
+**Data note – August 2026:** the 1,300 savings rows dated 4 Aug 2026 (₦67,721,762) were opening balances
+from the members upload, and no August deduction was ever recorded. The upload would have refused every row as
+"Already exists". The migration marks them as opening balances (as at August 2026). If August's deductions
+were taken from salaries, upload them now on Upload Savings for August 2026. Check first that the opening
+balances did not already include August.
+
+**Removed (unused):**
+- `Treasurer/uploadMembersExcel2.php`: an older copy, which could create members without a login.
+- `Treasurer/download_failed_records.php`: replaced by the problems download on the page.
+
+The old members upload handler in `js/custom.js` is also removed.
+
+| File | Change |
+|---|---|
+| `db/2026-10-23_savings_opening_balance.sql` | **New** – database changes (#13 above) |
+| `config/classes/MemberUpload.php` | **New** – read, check and import the members file |
+| `Treasurer/upload.php` | Redesigned; login check |
+| `Treasurer/uploadMembersExcel.php` | Rewritten – Treasurer only; check or import; JSON |
+| `Members_uploads.csv` | New template columns |
+| `Treasurer/uploadDepositExcel.php` | Duplicate check counts monthly rows only |
+| `config/classes/LoanControls.php` | Overpayment credits saved as `credit` |
+| `config/classes/Dashboard.php` | Statement labels opening balances |
+| `Treasurer/view_savings.php` | Monthly deductions only |
+| `js/custom.js` | Old members upload handler removed |
+| `Treasurer/uploadMembersExcel2.php`, `Treasurer/download_failed_records.php` | **Removed** |
+
+---
 ## 2026-10-20
 
 ### Treasurer savings and withdrawal records redesigned; duplicate pages removed

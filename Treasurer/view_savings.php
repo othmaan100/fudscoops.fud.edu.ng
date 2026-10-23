@@ -16,13 +16,13 @@
     $ymExpr = "CONCAT(s.year, '-', LPAD(s.month, 2, '0'))";
 
     $mode = isset($_GET['view']) && $_GET['view'] === 'year' ? 'year' : 'month';
-    $latest = $con->query("SELECT MAX($ymExpr) FROM fudscoops_savings s")->fetchColumn() ?: date('Y-m');
+    $latest = $con->query("SELECT MAX($ymExpr) FROM fudscoops_savings s WHERE s.entry_type = 'monthly'")->fetchColumn() ?: date('Y-m');
     $month = isset($_GET['month']) && preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $_GET['month']) ? $_GET['month'] : $latest;
     $year = isset($_GET['year']) && preg_match('/^\d{4}$/', $_GET['year']) ? $_GET['year'] : substr($month, 0, 4);
 
     if ($mode === 'year') {
         $stmt = $con->prepare("SELECT $ymExpr ym, COUNT(DISTINCT s.member_idmember) members, SUM(s.savings_amount) total, COUNT(*) entries
-                               FROM fudscoops_savings s WHERE s.year = :y GROUP BY ym ORDER BY ym DESC");
+                               FROM fudscoops_savings s WHERE s.year = :y AND s.entry_type = 'monthly' GROUP BY ym ORDER BY ym DESC");
         $stmt->execute([':y' => $year]);
         $months = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $years = $con->query("SELECT DISTINCT year FROM fudscoops_savings ORDER BY year DESC")->fetchAll(PDO::FETCH_COLUMN);
@@ -30,7 +30,7 @@
         // Approved members with their monthly savings and balance, and what they saved this month
         $members = (new MemberG1())->treasurerMemberDirectory();
         $stmt = $con->prepare("SELECT s.member_idmember, SUM(s.savings_amount) amt, COUNT(*) n, MAX(s.savings_date) d
-                               FROM fudscoops_savings s WHERE $ymExpr = :m GROUP BY s.member_idmember");
+                               FROM fudscoops_savings s WHERE $ymExpr = :m AND s.entry_type = 'monthly' GROUP BY s.member_idmember");
         $stmt->execute([':m' => $month]);
         $saved = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $s) {

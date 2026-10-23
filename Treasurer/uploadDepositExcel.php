@@ -98,7 +98,7 @@ if (isset($_FILES['uploadFile']) && !empty($_FILES['uploadFile']['name'])) {
                                 } else {
                                     // Check for duplicate
                                     $checkQuery = "SELECT 1 FROM fudscoops_savings 
-                                                   WHERE month = :month AND year = :year AND member_idmember = :staffid";
+                                                   WHERE month = :month AND year = :year AND member_idmember = :staffid AND entry_type = 'monthly'";
                                     $checkStmt = $con->prepare($checkQuery);
                                     $checkStmt->bindParam(':month', $month, PDO::PARAM_INT);
                                     $checkStmt->bindParam(':year', $year, PDO::PARAM_INT);

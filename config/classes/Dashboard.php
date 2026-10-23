@@ -183,13 +183,14 @@ class Dashboard{
                                      WHERE member_id = :m AND status = 'settled' AND member_choice = 'savings'");
         $stmt->execute([':m' => $memberId]);
         $overpaid = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $stmt = $this->con->prepare("SELECT savings_id, savings_amount, month, year, savings_date FROM fudscoops_savings WHERE member_idmember = :m");
+        $stmt = $this->con->prepare("SELECT savings_id, savings_amount, entry_type, month, year, savings_date FROM fudscoops_savings WHERE member_idmember = :m");
         $stmt->execute([':m' => $memberId]);
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $s) {
             $monthStart = sprintf('%04d-%02d-01', (int) $s['year'], (int) $s['month']);
             // Monthly savings uploaded without a date are placed at the start of their month
             $date = $s['savings_date'] ?: $monthStart;
-            $label = 'Savings for ' . date('F Y', strtotime($monthStart));
+            $label = $s['entry_type'] === 'opening' ? 'Opening balance (savings before the portal), as at ' . date('F Y', strtotime($monthStart))
+                : 'Savings for ' . date('F Y', strtotime($monthStart));
             foreach ($overpaid as $k => $o) {
                 if ($s['savings_date'] === $o['d'] && abs($s['savings_amount'] - round($o['amount'], 2)) < 0.01) {
                     $label = 'Loan overpayment added to savings (loan #' . (int) $o['loan_id'] . ')';

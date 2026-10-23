@@ -309,8 +309,8 @@ class LoanControls
         try {
             $con->beginTransaction();
             if ($op['member_choice'] === 'savings') {
-                $con->prepare("INSERT INTO fudscoops_savings (savings_amount, month, year, savings_date, savings_is_deleted, member_idmember)
-                               VALUES (:a, :mo, :y, CURDATE(), 0, :m)")
+                $con->prepare("INSERT INTO fudscoops_savings (savings_amount, entry_type, month, year, savings_date, savings_is_deleted, member_idmember)
+                               VALUES (:a, 'credit', :mo, :y, CURDATE(), 0, :m)")
                     ->execute([':a' => round((float) $op['amount'], 2), ':mo' => date('n'), ':y' => date('Y'), ':m' => $op['member_id']]);
                 $note = trim('Added to savings. ' . $note);
             } elseif ($op['member_choice'] === 'loan') {
