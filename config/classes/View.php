@@ -418,6 +418,7 @@ class View{
             ],
             'Uploads' => [
                 ['Uploads', 'mdi-cloud-upload', 'ui-uploads', [
+                    ['Staff List', 'upload_staff.php'],
                     ['Members', 'upload.php'],
                     ['Members Savings', 'uploadDeposit.php'],
                     ['Members Withdrawals', 'uploadWithdrawals.php'],

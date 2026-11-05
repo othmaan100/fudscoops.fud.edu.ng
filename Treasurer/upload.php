@@ -58,6 +58,7 @@
                     <li>Keep the heading row. Save as <strong>CSV (Comma delimited)</strong> in Excel.</li>
                     <li>Staff already members are left as they are; change their monthly savings through Savings Update.</li>
                     <li>Applicants still waiting for approval are approved by the upload.</li>
+                    <li>New staff not yet on the staff list must be added first on <a href="upload_staff.php">Upload staff list</a>.</li>
                   </ul>
                 </div>
               </div>

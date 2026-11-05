@@ -30,7 +30,8 @@ class MemberUpload
 
     private static function normaliseStaffNo($s)
     {
-        return strtoupper(preg_replace('/\s+/', '', trim((string) $s)));
+        // SP/RA/1234, SPRA1234 and sp ra 1234 are the same staff number
+        return strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string) $s));
     }
 
     private static function amount($s)
@@ -147,7 +148,7 @@ class MemberUpload
             } elseif (isset($seen[$key])) {
                 $res['errors'][] = 'This staff number is already on line ' . $seen[$key] . ' of the file.';
             } elseif (!isset($employees[$key])) {
-                $res['errors'][] = 'No staff record has this staff number. Check it against the staff list (e.g. SP/RA/1234).';
+                $res['errors'][] = 'No staff record has this staff number. Check it, or add the staff member first on Uploads › Staff List.';
             }
             if ($key !== '' && !isset($seen[$key])) {
                 $seen[$key] = $r['line'];

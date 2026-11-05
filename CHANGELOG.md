@@ -221,6 +221,67 @@ pages.
 
 ---
 
+## 2026-11-05
+
+### Upload staff list (new staff into the employee table)
+
+No database changes: staff are added when the Treasurer imports a file.
+
+A member can only be uploaded, or apply, if they are in the staff list (`employee`). New staff were missing from it, so
+member uploads failed with "No staff record".
+
+**Treasurer/upload_staff.php (new; menu Uploads › Staff List):**
+- **Same two steps as the members upload:** **Check file** shows what would happen to every row without saving,
+  then **Import** saves the rows that passed. Rows with problems can be downloaded with the reason.
+- **Access:** Treasurer only (`Treasurer/uploadStaff.php`).
+
+**The file (config/classes/StaffUpload.php):**
+- **Layout:** the HR list can be uploaded as it is ("S/N, STAFF ID, GIFMIS CODE, FULL NAME, date-apptm"),
+  since columns are found by their headings. Optional extra columns: Department, Cadre, Gender, Phone, Email
+  (template `Staff_uploads.csv`).
+- **Staff ID:** written either way, e.g. `SPRN3237` or `SP/RN/3237`, and saved as `SP/RN/3237` (`JPR3322` as
+  `JP/R/3322`).
+- **Names:** split into title (Dr, Prof, Mr…), first, last and other names, as in the employee table.
+- **Dates:** `01-Dec-21`, `1-Nov-23`, `11/19/24` (US order is detected), `2026-02-01`, saved as dd/mm/yyyy.
+- **Encoding:** Excel's Windows-1252 characters (e.g. ABDUL’AZIZ) are read correctly.
+
+**What an import does:**
+- **New staff:** each gets an employee record. SP/RA staff are given cadre ACADEMIC; the other prefixes vary
+  too much to guess.
+  - The GIFMIS code is saved (`ippis_static_record`).
+  - A login is created: username and first password are the staff ID (`md5`, as elsewhere), at applicant level,
+    so they can apply for membership.
+- **Staff already on the list:** not changed. Their GIFMIS code is added if they have none.
+- **Problems (not saved):**
+  - a staff ID already on the list under a different name;
+  - a GIFMIS code already recorded for another staff ID, which is likely the same person under another number;
+  - a duplicate in the file;
+  - an unreadable staff ID or date.
+
+**Checked with "NEW STAFF COORPARATIVE.csv" (549 staff) on a copy of the database:**
+- 322 new staff would be added, each with a login.
+- 223 are already on the list, and 214 of them get their GIFMIS code.
+- 4 problems:
+  - SP/RA/3399 is on the list as Dr Abdullahi Lawal; the file has Edward Inimotimi Amakiri.
+  - SP/RN/3531 Rabiu Abubakar Babale: his GIFMIS code TI109450 is on SP/RN/1909.
+  - SP/RA/3327 Hanga Bilyaminu Yusuf: his code TI178184 is on SP/RA/1178.
+  - SP/RN/2606 Muhammad Kamal: his code TI147316 is on SP/RT/2606.
+- SP/RN/3319 is on the list twice (Ibrahim Muhammad Abdullahi and Sagir Lawan); the upload matches the record by
+  name.
+
+**Members upload:** staff numbers now match whether or not they have slashes (`SPRA3225` = `SP/RA/3225`). The "not
+found" message and the page point to Upload staff list.
+
+| File | Change |
+|---|---|
+| `config/classes/StaffUpload.php` | **New** – read, check and import the staff list |
+| `Treasurer/upload_staff.php` | **New** – page |
+| `Treasurer/uploadStaff.php` | **New** – Treasurer only; check or import; JSON |
+| `Staff_uploads.csv` | **New** – template |
+| `config/classes/View.php` | Treasurer menu: Uploads › Staff List |
+| `config/classes/MemberUpload.php`, `Treasurer/upload.php` | Staff numbers match without slashes; link to the staff list upload |
+
+---
 ## 2026-10-23
 
 ### Upload new members: check before import, new template, opening balances kept apart
