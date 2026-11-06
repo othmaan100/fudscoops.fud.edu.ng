@@ -221,6 +221,48 @@ pages.
 
 ---
 
+## 2026-11-06
+
+### Uploads: a clear message instead of "Network or server error"
+
+No database changes.
+
+On the live server the members upload showed only "Network or server error. Please try again.", which the page
+shows whenever the reply is not JSON. That happens when PHP stops with an error: for example a missing class file,
+or the `fudscoops_savings.entry_type` column (migration #13) not yet run. With `display_errors` off, the reply is
+empty or an HTML error page.
+
+**config/classes/JsonEndpoint.php (new), used by `Treasurer/uploadMembersExcel.php` and `Treasurer/uploadStaff.php`:**
+- **Always JSON:** the endpoints answer with JSON whatever happens.
+  - A PHP fatal error or an uncaught database exception comes back as "Server error: …" and is also written to
+    the PHP error log.
+  - Stray output (e.g. DB.php's "Connection failed") no longer breaks the reply.
+- **Upload problems in words:** the file is larger than the server's `upload_max_filesize` / `post_max_size`, the
+  temporary folder cannot be written, and so on.
+- **Database check:** the members upload says when `fudscoops_savings.entry_type` is missing and which migration
+  to run (`db/2026-10-23_savings_opening_balance.sql`).
+- **Encoding:** names that are not valid UTF-8 no longer make the reply fail.
+
+**Treasurer/upload.php and Treasurer/upload_staff.php:**
+- **Server errors:** when the server's reply is not JSON, the page shows the HTTP status and the start of the reply
+  (the PHP error, a login page, a firewall block…).
+- **Network errors:** "Network error" is only shown when the server could not be reached.
+
+**Members upload (config/classes/MemberUpload.php):**
+- **Encoding:** files saved by Excel in Windows-1252 (e.g. YA’U) are read as UTF-8.
+- **"Balance As At" filled as a series:** when Excel has filled the column as a series (Nov-26, Dec-26, Jan-27, …,
+  one month later on every row), the file is refused with an explanation. "Members_uploads November.csv" has this:
+  its months run from Nov-26 through 2050 and back round to Jan-25, so most opening balances would have been
+  rejected or dated wrongly.
+
+| File | Change |
+|---|---|
+| `config/classes/JsonEndpoint.php` | **New** |
+| `Treasurer/uploadMembersExcel.php`, `Treasurer/uploadStaff.php` | Always reply with JSON; upload errors in words; migration check |
+| `Treasurer/upload.php`, `Treasurer/upload_staff.php` | Show the server's reply when it is not JSON |
+| `config/classes/MemberUpload.php` | Windows-1252 files; `seriesError()` |
+
+---
 ## 2026-11-05
 
 ### Upload staff list (new staff into the employee table)

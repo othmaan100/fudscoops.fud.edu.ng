@@ -63,10 +63,18 @@ class MemberUpload
     // Reads the CSV into rows keyed by field. Returns ['rows' => [...], 'error' => null|message, 'columns' => [...]]
     public static function readCsv($path)
     {
-        $handle = @fopen($path, 'r');
-        if (!$handle) {
+        $raw = @file_get_contents($path);
+        if ($raw === false) {
             return ['rows' => [], 'error' => 'The file could not be read.', 'columns' => []];
         }
+        // Excel saves CSV in Windows-1252 (e.g. YA’U): convert so names are valid UTF-8
+        $raw = preg_replace('/^﻿/', '', $raw);
+        if (!preg_match('//u', $raw)) {
+            $raw = mb_convert_encoding($raw, 'UTF-8', 'Windows-1252');
+        }
+        $handle = fopen('php://temp', 'r+');
+        fwrite($handle, str_replace(["‘", "’"], "'", $raw));
+        rewind($handle);
         $header = fgetcsv($handle);
         if (!$header) {
             fclose($handle);
@@ -112,6 +120,35 @@ class MemberUpload
             return ['rows' => [], 'error' => 'The file has headings but no staff rows.', 'columns' => array_keys($map)];
         }
         return ['rows' => $rows, 'error' => null, 'columns' => array_keys($map)];
+    }
+
+    // Excel fills a dragged month as a series (Nov-26, Dec-26, Jan-27, …). One opening balance date per member is
+    // fine, but a column where most rows are exactly one month after the row above was filled by mistake.
+    // Returns a message, or null.
+    public static function seriesError($rows)
+    {
+        $months = [];
+        foreach ($rows as $r) {
+            if (trim($r['as_at']) !== '') {
+                $m = self::parseMonth($r['as_at']);
+                $months[] = $m === false ? null : $m;
+            }
+        }
+        if (count($months) < 6) {
+            return null;
+        }
+        $steps = 0;
+        for ($i = 1; $i < count($months); $i++) {
+            if ($months[$i] && $months[$i - 1] && $months[$i] === date('Y-m', strtotime($months[$i - 1] . '-01 +1 month'))) {
+                $steps++;
+            }
+        }
+        if ($steps / (count($months) - 1) < 0.8) {
+            return null;
+        }
+        return 'The "Balance As At" column goes up by one month on every row (' . implode(', ', array_slice(array_filter(array_map(function ($r) { return trim($r['as_at']); }, $rows)), 0, 3))
+            . ', …): Excel filled it as a series when it was dragged down. Enter the month the balances are up to, the same for everyone '
+            . '(e.g. ' . date('m/Y', strtotime('first day of last month')) . '), or leave the column blank for last month, then upload again.';
     }
 
     // Checks every row without saving anything. Each result: line, input, employee, action, errors[], warnings[].

@@ -128,7 +128,11 @@
         checkBtn.disabled = true; importBtn.disabled = true;
         msg.innerHTML = '<div class="alert alert-info mb-0"><i class="mdi mdi-loading mdi-spin"></i> ' + (mode === 'import' ? 'Importing…' : 'Checking the file…') + '</div>';
         fetch('uploadStaff.php', { method: 'POST', body: data, credentials: 'same-origin' })
-            .then(function (r) { return r.json(); })
+            .then(function (r) {
+                return r.text().then(function (t) {
+                    try { return JSON.parse(t); } catch (e) { throw { status: r.status, text: t }; }
+                });
+            })
             .then(function (res) {
                 checkBtn.disabled = false;
                 if (!res.ok) { alertBox(false, res.message); return; }
@@ -138,7 +142,16 @@
                 if (mode === 'check') { checkedFile = input.files[0]; importBtn.disabled = !ready; importBtn.innerHTML = '<i class="mdi mdi-database-import"></i> Import ' + s.create + ' new staff'; }
                 render(res);
             })
-            .catch(function () { checkBtn.disabled = false; alertBox(false, 'Network or server error. Please try again.'); });
+            .catch(function (e) {
+                checkBtn.disabled = false;
+                if (e && e.status !== undefined) {
+                    // Not JSON: show the start of what came back (a PHP error, a login page, a firewall block…)
+                    var text = String(e.text || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                    alertBox(false, 'The server replied with an error (HTTP ' + e.status + ')' + (text ? ': ' + text.slice(0, 400) : ' and no message') + '. Check the server error log for uploadMembersExcel.php / uploadStaff.php.');
+                } else {
+                    alertBox(false, 'Network error: the server could not be reached. Check the connection and try again.');
+                }
+            });
     }
     form.addEventListener('submit', function (e) { e.preventDefault(); send('check'); });
     importBtn.addEventListener('click', function () {

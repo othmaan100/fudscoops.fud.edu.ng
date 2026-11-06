@@ -3,33 +3,33 @@
 //   check:  reports what would happen to every row; nothing is saved.
 //   import: saves the rows that pass (config/classes/StaffUpload.php) and keeps a copy of the file.
 // Replies JSON {ok, message, mode, summary, rows: [...]}.
+require_once('../config/classes/JsonEndpoint.php');
+JsonEndpoint::start();   // always answer with JSON, even on a PHP or database error
 require_once('../config/classes/DB.php');
 require_once('../config/classes/User.php');
 require_once('../config/classes/StaffUpload.php');
 
-header('Content-Type: application/json');
 if (!isset($_SESSION['access_level'], $_SESSION['username']) || (int) $_SESSION['access_level'] !== 3) {
-    echo json_encode(['ok' => false, 'message' => 'Only the Treasurer can upload the staff list. Please log in again.']);
+    JsonEndpoint::reply(['ok' => false, 'message' => 'Only the Treasurer can upload the staff list. Please log in again.']);
     exit();
 }
 $mode = isset($_POST['mode']) && $_POST['mode'] === 'import' ? 'import' : 'check';
 $file = isset($_FILES['uploadFile']) ? $_FILES['uploadFile'] : null;
-if (!$file || $file['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($file['tmp_name'])) {
-    echo json_encode(['ok' => false, 'message' => 'Choose the CSV file first.']);
-    exit();
+if ($uploadError = JsonEndpoint::uploadError($file)) {
+    JsonEndpoint::reply(['ok' => false, 'message' => $uploadError]);
 }
 if (strtolower(pathinfo($file['name'], PATHINFO_EXTENSION)) !== 'csv') {
-    echo json_encode(['ok' => false, 'message' => 'Only .csv files can be uploaded. In Excel use File › Save As › CSV (Comma delimited).']);
+    JsonEndpoint::reply(['ok' => false, 'message' => 'Only .csv files can be uploaded. In Excel use File › Save As › CSV (Comma delimited).']);
     exit();
 }
 if ($file['size'] > 2 * 1024 * 1024) {
-    echo json_encode(['ok' => false, 'message' => 'The file is larger than 2MB. Split it into smaller files.']);
+    JsonEndpoint::reply(['ok' => false, 'message' => 'The file is larger than 2MB. Split it into smaller files.']);
     exit();
 }
 
 $read = StaffUpload::readCsv($file['tmp_name']);
 if ($read['error']) {
-    echo json_encode(['ok' => false, 'message' => $read['error']]);
+    JsonEndpoint::reply(['ok' => false, 'message' => $read['error']]);
     exit();
 }
 $plan = StaffUpload::plan($read['rows']);
@@ -55,4 +55,4 @@ $rows = array_map(function ($p) {
             'login' => $p['login'], 'errors' => $p['errors'], 'warnings' => $p['warnings'], 'input' => $p['input'],
             'saved' => isset($p['saved']) ? $p['saved'] : null, 'result' => isset($p['result']) ? $p['result'] : null];
 }, $plan);
-echo json_encode(['ok' => true, 'mode' => $mode, 'message' => $message, 'summary' => $summary, 'rows' => $rows]);
+JsonEndpoint::reply(['ok' => true, 'mode' => $mode, 'message' => $message, 'summary' => $summary, 'rows' => $rows]);
