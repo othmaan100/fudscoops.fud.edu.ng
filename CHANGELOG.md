@@ -221,6 +221,24 @@ pages.
 
 ---
 
+## 2026-11-11
+
+### Staff list upload: email is optional
+
+No database changes.
+
+- **Email may be left out:** the column can be missing, blank, or a placeholder (nil, N/A, none, -).
+- **Invalid emails:** a value that is not an email address is left out with a warning instead of stopping the row.
+- **Saved as an empty string:** an email or phone that is not given is saved as '' rather than NULL, so rows save whether or not the live
+  `employee.email` / `phone_no` columns allow NULL (checked on a copy where they do not).
+
+| File | Change |
+|---|---|
+| `config/classes/StaffUpload.php` | Email optional; '' instead of NULL |
+| `Treasurer/upload_staff.php` | Note on the optional columns |
+
+---
+
 ## 2026-11-06
 
 ### Uploads: a clear message instead of "Network or server error"

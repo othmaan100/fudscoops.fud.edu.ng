@@ -50,7 +50,7 @@
                       <tr><td class="text-nowrap"><strong>Full Name</strong></td><td>Required. Titles such as Dr, Prof, Mr are recognised.</td></tr>
                       <tr><td class="text-nowrap"><strong>GIFMIS Code</strong></td><td>Optional. The IPPIS / GIFMIS number, e.g. TI345381.</td></tr>
                       <tr><td><strong>Date of appointment</strong></td><td>Optional. 01-Nov-23, 01/11/2023 or 2023-11-01.</td></tr>
-                      <tr><td><strong>Department, Cadre, Gender, Phone, Email</strong></td><td>Optional.</td></tr>
+                      <tr><td><strong>Department, Cadre, Gender, Phone, Email</strong></td><td>Optional. The columns can be left out or left blank; an email that is not a valid address is ignored.</td></tr>
                     </tbody>
                   </table>
                   <ul class="fud-howto mb-0">

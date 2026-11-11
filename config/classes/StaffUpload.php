@@ -216,8 +216,13 @@ class StaffUpload
                     $p['warnings'][] = 'No date of appointment.';
                 }
             }
-            if ($r['email'] !== '' && !filter_var($r['email'], FILTER_VALIDATE_EMAIL)) {
-                $p['errors'][] = 'Email "' . $r['email'] . '" is not an email address.';
+            // Email is optional: blank or a placeholder (nil, N/A, -) is fine; anything that is not an email address is
+            // left out with a warning instead of stopping the row
+            if (in_array(strtolower(trim($r['email'], " .-")), ['', 'nil', 'na', 'n/a', 'none', 'null', 'no email'], true)) {
+                $p['input']['email'] = '';
+            } elseif (!filter_var($r['email'], FILTER_VALIDATE_EMAIL)) {
+                $p['warnings'][] = 'Email "' . $r['email'] . '" is not an email address; it is left out.';
+                $p['input']['email'] = '';
             }
             $codeKey = self::key($p['code']);
             if ($codeKey !== '' && isset($seenCode[$codeKey])) {
@@ -316,7 +321,7 @@ class StaffUpload
                                            VALUES (:sp, :title, :f, :l, :o, :g, :cadre, '', :doa, :doa2, '', '', '', :dept, :email, :phone, '', 0, '', '', '', '', '', 0, 0)");
                     $stmt->execute([':sp' => $p['staff'], ':title' => $title, ':f' => $n['fname'], ':l' => $n['lname'], ':o' => $n['oname'],
                                     ':g' => in_array($gender, ['M', 'F'], true) ? $gender : null, ':cadre' => $cadre, ':doa' => $p['doa'] ?: null, ':doa2' => $p['doa'],
-                                    ':dept' => strtoupper($in['dept']), ':email' => $in['email'] ?: null, ':phone' => $in['phone'] ?: null]);
+                                    ':dept' => strtoupper($in['dept']), ':email' => $in['email'], ':phone' => $in['phone']]);   // '' when not given (works whether or not the column allows NULL)
                     $p['employee_id'] = (int) $con->lastInsertId();
                     if ($p['login']) {
                         $con->prepare("INSERT INTO user (username, password, access_level) VALUES (:u, :p, 0)")
