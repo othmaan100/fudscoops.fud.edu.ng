@@ -33,7 +33,7 @@ class StaffUpload
         return strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string) $s));
     }
 
-    // SPRN3237 / SP/RN/3237 / sp-rn 3237 -> SP/RN/3237; JPR3322 -> JP/R/3322; false if not a staff ID
+    // SPRN3237 / SP/RN/3237 /  -> SP/RN/3237; JPR3322 -> JP/R/3322; false if not a staff ID
     public static function staffNo($s)
     {
         $k = self::key($s);
